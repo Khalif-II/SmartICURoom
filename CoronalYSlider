@@ -1,0 +1,23 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+//using Microsoft.MixedReality.Toolkit.Input;
+//using Microsoft.MixedReality.Toolkit.UI;
+
+namespace VolumeRendering
+{
+    public class CoronalY : MonoBehaviour
+    {
+        public Slider p;
+        public VolumeRendering v;
+
+
+       
+        void Update()
+        {
+            v.sliceYMin = p.value;
+        }
+    }
+
+}
