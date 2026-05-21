@@ -1,0 +1,61 @@
+using UnityEngine;
+using TMPro;
+using System.Security.Cryptography;
+
+public class EHRGenerator : MonoBehaviour
+{
+    [System.Serializable]
+    public class EHR
+    {
+        
+        public string patientName = "Jane Doe";
+        public int age = 72;
+        public string gender = "Female";
+        public string race = "Caucasian";
+        public string contactInfo = "123-456-7890";
+        public string insuranceDetails = "SecureHealth Insurance";
+
+        
+        public string comorbidities = "Hypertension, Type 2 Diabetes, Asthma";
+        public string familyHistory = "Heart Disease, Stroke";
+        public string allergies = "Penicillin, Nuts";
+        public string geneticRiskFactors = "Moderate risk of COVID-19 complications";
+
+       
+       
+
+    public EHR ehrData = new EHR();
+
+    
+    public TMP_Text patientNameText;
+    public TMP_Text ageText;
+    public TMP_Text genderText;
+    public TMP_Text raceText;
+    public TMP_Text contactInfoText;
+    public TMP_Text insuranceDetailsText;
+    public TMP_Text comorbiditiesText;
+    public TMP_Text familyHistoryText;
+    public TMP_Text allergiesText;
+    public TMP_Text geneticRiskFactorsText;
+    public TMP_Text oxygenConsumptionRateText;
+    public TMP_Text atpProductionRateText;
+
+    private void Start()
+    {
+        
+        patientNameText.text = $"Name: {ehrData.patientName}";
+        ageText.text = $"Age: {ehrData.age}";
+        genderText.text = $"Gender: {ehrData.gender}";
+        raceText.text = $"Race: {ehrData.race}";
+        contactInfoText.text = $"Contact Info: {ehrData.contactInfo}";
+        insuranceDetailsText.text = $"Insurance: {ehrData.insuranceDetails}";
+
+        comorbiditiesText.text = $"Comorbidities: {ehrData.comorbidities}";
+        familyHistoryText.text = $"Family History: {ehrData.familyHistory}";
+        allergiesText.text = $"Allergies: {ehrData.allergies}";
+        geneticRiskFactorsText.text = $"Genetic Risk Factors: {ehrData.geneticRiskFactors}";
+
+        
+        
+    }
+}
