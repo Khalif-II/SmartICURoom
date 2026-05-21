@@ -1,0 +1,145 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ObjectManipulator : MonoBehaviour
+{
+    private Camera mainCamera; 
+    private GameObject selectedObject; 
+    private bool isDragging = false;
+
+    private Vector3 initialScale;
+
+    [Header("Selectable Objects")]
+    public List<GameObject> selectableObjects; 
+
+    [Header("Scaling Settings")]
+    public float scaleSpeed = 0.01f; 
+    public float minScale = 0.1f;    
+    public float maxScale = 3.0f;    
+
+    private float initialPinchDistance; 
+    private Vector3 initialObjectScale; 
+
+    void Start()
+    {
+        mainCamera = Camera.main; 
+    }
+
+    void Update()
+    {
+        if (Application.isMobilePlatform)
+        {
+            HandleTouchInput(); 
+        }
+        else
+        {
+            HandleMouseInput(); 
+        }
+    }
+
+    private void HandleMouseInput()
+    {
+        
+        if (Input.GetMouseButtonDown(0))
+        {
+            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            if (Physics.Raycast(ray, out RaycastHit hit))
+            {
+                
+                if (selectableObjects.Contains(hit.collider.gameObject))
+                {
+                    selectedObject = hit.collider.gameObject; 
+                    isDragging = true; 
+                }
+            }
+        }
+
+        
+        if (Input.GetMouseButton(0) && isDragging && selectedObject != null)
+        {
+            Vector3 mousePosition = Input.mousePosition;
+            mousePosition.z = mainCamera.WorldToScreenPoint(selectedObject.transform.position).z;
+            Vector3 worldPosition = mainCamera.ScreenToWorldPoint(mousePosition);
+            selectedObject.transform.position = worldPosition;
+        }
+
+        
+        if (Input.GetMouseButtonUp(0))
+        {
+            isDragging = false;
+            selectedObject = null;
+        }
+    }
+
+    private void HandleTouchInput()
+    {
+        
+        if (Input.touchCount == 1)
+        {
+            Touch touch = Input.GetTouch(0);
+
+            if (touch.phase == TouchPhase.Began)
+            {
+                Ray ray = mainCamera.ScreenPointToRay(touch.position);
+                if (Physics.Raycast(ray, out RaycastHit hit))
+                {
+                    if (selectableObjects.Contains(hit.collider.gameObject))
+                    {
+                        selectedObject = hit.collider.gameObject;
+                        isDragging = true;
+                    }
+                }
+            }
+
+            if (touch.phase == TouchPhase.Moved && isDragging && selectedObject != null)
+            {
+                Vector3 touchPosition = touch.position;
+                touchPosition.z = mainCamera.WorldToScreenPoint(selectedObject.transform.position).z;
+                Vector3 worldPosition = mainCamera.ScreenToWorldPoint(touchPosition);
+                selectedObject.transform.position = worldPosition;
+            }
+
+            if (touch.phase == TouchPhase.Ended)
+            {
+                isDragging = false;
+                selectedObject = null;
+            }
+        }
+
+        
+        if (Input.touchCount == 2)
+        {
+            Touch touch1 = Input.GetTouch(0);
+            Touch touch2 = Input.GetTouch(1);
+
+            if (touch1.phase == TouchPhase.Moved || touch2.phase == TouchPhase.Moved)
+            {
+                float currentDistance = Vector2.Distance(touch1.position, touch2.position);
+
+                if (selectedObject != null)
+                {
+                    if (initialPinchDistance == 0)
+                    {
+                        initialPinchDistance = currentDistance;
+                        initialObjectScale = selectedObject.transform.localScale;
+                    }
+
+                    float scaleFactor = currentDistance / initialPinchDistance;
+                    Vector3 newScale = initialObjectScale * scaleFactor;
+
+                    
+                    newScale.x = Mathf.Clamp(newScale.x, minScale, maxScale);
+                    newScale.y = Mathf.Clamp(newScale.y, minScale, maxScale);
+                    newScale.z = Mathf.Clamp(newScale.z, minScale, maxScale);
+
+                    selectedObject.transform.localScale = newScale;
+                }
+            }
+
+            if (touch1.phase == TouchPhase.Ended || touch2.phase == TouchPhase.Ended)
+            {
+                initialPinchDistance = 0; 
+            }
+        }
+    }
+}
