@@ -1,0 +1,88 @@
+using System.Collections;
+using UnityEngine;
+using TMPro;
+using System.Collections.Generic;
+
+public class LabResultsGenerator : MonoBehaviour
+{
+   
+    public TMP_Text wbcText;
+    public TMP_Text crpText;
+    public TMP_Text dDimerText;
+    public TMP_Text altText;
+    public TMP_Text astText;
+    public TMP_Text paO2Text;
+    public TMP_Text creatinineText;
+    public TMP_Text paCO2Text;
+    public TMP_Text pHText;
+    public TMP_Text viralLoadText;
+
+    private float updateInterval = 5.0f; 
+
+   
+    private float wbc;
+    private float crp;
+    private float dDimer;
+    private float alt;
+    private float ast;
+    private float paO2;
+    private float creatinine;
+    private float paCO2;
+    private float pH;
+    private float viralLoad;
+
+    private void Start()
+    {
+        StartCoroutine(UpdateLabResults());
+    }
+
+    private IEnumerator UpdateLabResults()
+    {
+        while (true)
+        {
+            
+            wbc = Random.Range(4.0f, 15.0f);
+            crp = Random.Range(0.0f, 200.0f);
+            dDimer = Random.Range(0.0f, 3000.0f);
+            alt = Random.Range(10.0f, 50.0f);
+            ast = Random.Range(10.0f, 50.0f);
+            paO2 = Random.Range(60.0f, 100.0f);
+            creatinine = Random.Range(0.5f, 1.5f);
+            paCO2 = Random.Range(35.0f, 45.0f);
+            pH = Random.Range(7.35f, 7.45f);
+            viralLoad = Random.Range(0.0f, 1000000.0f);
+
+            
+            wbcText.text = $"WBC Count: {wbc:F2} x10^9/L";
+            crpText.text = $"CRP: {crp:F2} mg/L";
+            dDimerText.text = $"D-Dimer: {dDimer:F2} ng/mL";
+            altText.text = $"ALT: {alt:F2} U/L";
+            astText.text = $"AST: {ast:F2} U/L";
+            paO2Text.text = $"PaO2: {paO2:F2} mmHg";
+            creatinineText.text = $"Creatinine: {creatinine:F2} mg/dL";
+            paCO2Text.text = $"PaCO2: {paCO2:F2} mmHg";
+            pHText.text = $"pH: {pH:F2}";
+            viralLoadText.text = $"Viral Load: {viralLoad:F0} copies/mL";
+
+            yield return new WaitForSeconds(updateInterval); 
+        }
+    }
+
+    
+    public Dictionary<string, float> GetRawLabResults()
+    {
+        return new Dictionary<string, float>
+        {
+            { "wbc", wbc },
+            { "crp", crp },
+            { "dDimer", dDimer },
+            { "alt", alt },
+            { "ast", ast },
+            { "paO2", paO2 },
+            { "creatinine", creatinine },
+            { "paCO2", paCO2 },
+            { "pH", pH },
+            { "viralLoad", viralLoad }
+        };
+    }
+}
