@@ -1,0 +1,44 @@
+using UnityEngine;
+using TMPro;
+
+public class VentilationStatusSummaryGenerator : MonoBehaviour
+{
+    
+    public VentilationStatusSimulation ventilationSimulation;
+
+    
+    public TMP_Text ventilationSummaryText;
+
+    
+    public void UpdateVentilationSummary()
+    {
+        
+        if (ventilationSimulation == null)
+        {
+            ventilationSummaryText.text = "Ventilation data unavailable.";
+            return;
+        }
+
+        
+        float tidalVolume = ventilationSimulation.tidalVolume;
+        float fio2 = ventilationSimulation.fio2 * 100; 
+        float peep = ventilationSimulation.peep;
+        float peakAirwayPressure = ventilationSimulation.peakAirwayPressure;
+        float plateauPressure = ventilationSimulation.plateauPressure;
+        float minuteVentilation = ventilationSimulation.tidalVolume * ventilationSimulation.respiratoryRate / 1000f;
+
+        
+        ventilationSummaryText.text = $"TV: {tidalVolume:F1}\n" +
+                                      $"FiO₂: {fio2:F1}%\n" +
+                                      $"PEEP: {peep:F1}\n" +
+                                      $"PAP: {peakAirwayPressure:F1}\n" +
+                                      $"PP: {plateauPressure:F1}\n" +
+                                      $"MV: {minuteVentilation:F1}";
+    }
+
+    
+    private void Update()
+    {
+        UpdateVentilationSummary();
+    }
+}
