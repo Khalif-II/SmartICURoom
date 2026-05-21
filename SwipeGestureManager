@@ -1,0 +1,101 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SwipeGestureHandler : MonoBehaviour
+{
+    [System.Serializable]
+    public class SwipeAction
+    {
+        public string name; 
+        public GameObject swipeOrigin; 
+        public SwipeDirection direction; 
+        public GameObject targetObject; 
+        public ActionType action; 
+    }
+
+    public enum SwipeDirection { Up, Down, Left, Right }
+    public enum ActionType { Show, Hide }
+
+    public List<SwipeAction> swipeActions = new List<SwipeAction>(); 
+
+    private Vector2 startTouchPosition;
+    private Vector2 endTouchPosition;
+    private bool isSwiping;
+    private GameObject activeSwipeOrigin;
+
+    void Update()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            startTouchPosition = Input.mousePosition;
+
+            
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+
+            if (Physics.Raycast(ray, out RaycastHit hit))
+            {
+                activeSwipeOrigin = hit.collider.gameObject;
+                
+            }
+            else
+            {
+                activeSwipeOrigin = null;
+              
+            }
+
+            isSwiping = true;
+        }
+        else if (Input.GetMouseButtonUp(0) && isSwiping)
+        {
+            endTouchPosition = Input.mousePosition;
+            DetectSwipe();
+            isSwiping = false;
+            activeSwipeOrigin = null;
+        }
+    }
+
+
+    private void DetectSwipe()
+    {
+        if (activeSwipeOrigin == null) return;
+
+        Vector2 swipeDelta = endTouchPosition - startTouchPosition;
+
+        if (swipeDelta.magnitude < 50) return; 
+
+        SwipeDirection detectedDirection;
+        if (Mathf.Abs(swipeDelta.x) > Mathf.Abs(swipeDelta.y))
+        {
+            detectedDirection = swipeDelta.x > 0 ? SwipeDirection.Right : SwipeDirection.Left;
+        }
+        else
+        {
+            detectedDirection = swipeDelta.y > 0 ? SwipeDirection.Up : SwipeDirection.Down;
+        }
+
+        ExecuteSwipeAction(activeSwipeOrigin, detectedDirection);
+    }
+
+    private void ExecuteSwipeAction(GameObject swipeOrigin, SwipeDirection direction)
+    {
+        foreach (var swipeAction in swipeActions)
+        {
+            if (swipeAction.swipeOrigin == swipeOrigin && swipeAction.direction == direction)
+            {
+                switch (swipeAction.action)
+                {
+                    case ActionType.Show:
+                        if (swipeAction.targetObject != null)
+                            swipeAction.targetObject.SetActive(true);
+                        break;
+
+                    case ActionType.Hide:
+                        if (swipeAction.targetObject != null)
+                            swipeAction.targetObject.SetActive(false);
+                        break;
+                }
+             
+            }
+        }
+    }
+}
