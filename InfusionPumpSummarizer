@@ -1,0 +1,40 @@
+using UnityEngine;
+using TMPro;
+
+public class InfusionPumpSummaryGenerator : MonoBehaviour
+{
+    
+    public ClinicallyRealisticInfusionPump infusionPump;
+
+   
+    public TMP_Text infusionSummaryText;
+
+    
+    public void UpdateInfusionSummary()
+    {
+        
+        if (infusionPump == null)
+        {
+            infusionSummaryText.text = "Infusion pump data unavailable.";
+            return;
+        }
+
+        float initialRate = infusionPump.initialInfusionRate;
+        float finalRate = infusionPump.finalInfusionRate;
+        float totalInfused = infusionPump.totalInfused;
+        float fluidBalance = infusionPump.fluidBalance;
+        float output = infusionPump.totalOutput;
+
+        infusionSummaryText.text = $"Init Rate: {initialRate:F1} mL/hr | " +
+                                   $"Final Rate: {finalRate:F1} mL/hr | " +
+                                   $"Infused: {totalInfused:F1} mL | " +
+                                   $"Output: {output:F1} mL | " +
+                                   $"Balance: {fluidBalance:F1} mL";
+    }
+
+   
+    private void Update()
+    {
+        UpdateInfusionSummary();
+    }
+}
