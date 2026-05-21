@@ -1,0 +1,51 @@
+using UnityEngine;
+using TMPro;
+
+public class SummaryGenerator : MonoBehaviour
+{
+    
+    public TMP_Text heartRateText;
+    public TMP_Text oxygenSaturationText;
+    public TMP_Text systolicBPText;
+    public TMP_Text diastolicBPText;
+    public TMP_Text temperatureText;
+    public TMP_Text respirationRateText; 
+
+    
+    public TMP_Text summaryText;
+
+    
+    public void UpdateSummary()
+    {
+        
+        string hrSummary = ExtractValue(heartRateText.text, "Heart Rate");
+        string o2Summary = ExtractValue(oxygenSaturationText.text, "Oxygen Saturation");
+        string sbpSummary = ExtractValue(systolicBPText.text, "Systolic BP");
+        string dbpSummary = ExtractValue(diastolicBPText.text, "Diastolic BP");
+        string tempSummary = ExtractValue(temperatureText.text, "Temperature");
+        string rrSummary = ExtractValue(respirationRateText.text, "Respiration Rate"); 
+
+        
+        summaryText.text = $"HR: {hrSummary} | SpO2: {o2Summary}% | BP: {sbpSummary}/{dbpSummary} | Temp: {tempSummary}°C | RR: {rrSummary} bpm";
+    }
+
+    
+    private string ExtractValue(string fullText, string prefix)
+    {
+        if (fullText.StartsWith(prefix))
+        {
+            int colonIndex = fullText.IndexOf(':');
+            if (colonIndex != -1 && colonIndex + 1 < fullText.Length)
+            {
+                return fullText.Substring(colonIndex + 1).Trim().Split(' ')[0]; 
+            }
+        }
+        return "N/A"; 
+    }
+
+    
+    private void Start()
+    {
+        UpdateSummary();
+    }
+}
