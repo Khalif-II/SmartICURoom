@@ -1,0 +1,37 @@
+using UnityEngine;
+using TMPro;
+
+public class MedicalSummaryGenerator : MonoBehaviour
+{
+    
+    public EHRGenerator ehrGenerator;
+
+    
+    public TMP_Text medicalSummaryText;
+
+    
+    public void UpdateMedicalSummary()
+    {
+        
+        if (ehrGenerator == null || ehrGenerator.ehrData == null)
+        {
+            medicalSummaryText.text = "EHR data is unavailable.";
+            return;
+        }
+
+        
+        string patientName = ehrGenerator.ehrData.patientName;
+        int age = ehrGenerator.ehrData.age;
+        string gender = ehrGenerator.ehrData.gender;
+        string comorbidities = ehrGenerator.ehrData.comorbidities;
+
+        
+        medicalSummaryText.text = $"{patientName} | {age} | {gender} | {comorbidities}";
+    }
+
+    
+    private void Start()
+    {
+        UpdateMedicalSummary();
+    }
+}
