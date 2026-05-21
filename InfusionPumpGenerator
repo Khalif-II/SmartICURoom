@@ -1,0 +1,137 @@
+using System.Collections;
+using System.IO;
+using UnityEngine;
+using TMPro;
+
+public class ClinicallyRealisticInfusionPump : MonoBehaviour
+{
+    
+    public TMP_Text infusionStartTimeText;
+    public TMP_Text infusionEndTimeText;
+    public TMP_Text initialRateText;
+    public TMP_Text finalRateText;
+    public TMP_Text totalVolumeInfusedText;
+    public TMP_Text alarmEventsText;
+    public TMP_Text operatorNameText;
+    public TMP_Text fluidBalanceText;
+    public TMP_Text intakeText;
+    public TMP_Text outputText;
+
+    
+    public float initialInfusionRate = 50.0f; 
+    public float finalInfusionRate = 100.0f; 
+    public float outputRate = 30.0f;
+    public string operatorName = "Nurse A";
+
+    public float totalInfused = 0.0f;
+    public float totalOutput = 0.0f;
+    public float fluidBalance = 0.0f;
+
+    public string infusionStartTime;
+    public string infusionEndTime;
+    public float elapsedTime = 0.0f;
+    public bool infusionComplete = false;
+
+    
+    public string customCSVPath;
+    public string csvFilePath;
+
+    private const float updateInterval = 1.0f; 
+    private float infusionDuration = 3600.0f; 
+
+    void Start()
+    {
+        csvFilePath = string.IsNullOrEmpty(customCSVPath)
+            ? Path.Combine(Application.persistentDataPath, "ClinicallyRealisticInfusionPump.csv")
+            : customCSVPath;
+
+        infusionStartTime = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        infusionEndTime = System.DateTime.Now.AddSeconds(infusionDuration).ToString("yyyy-MM-dd HH:mm:ss");
+
+        InitializeCSVFile();
+        UpdateInitialUI();
+        StartCoroutine(UpdateInfusionPumpData());
+    }
+
+    public void InitializeCSVFile()
+    {
+        if (!File.Exists(csvFilePath))
+        {
+            using (StreamWriter writer = new StreamWriter(csvFilePath, true))
+            {
+                writer.WriteLine("timestamp,infusion_rate,total_infused,output_rate,fluid_balance,alarm_events,operator");
+            }
+        }
+    }
+
+    public void UpdateInitialUI()
+    {
+        infusionStartTimeText.text = $"Start Time: {infusionStartTime}";
+        infusionEndTimeText.text = $"End Time: {infusionEndTime}";
+        initialRateText.text = $"Initial Rate: {initialInfusionRate:F1} mL/hour";
+        finalRateText.text = $"Final Rate: {finalInfusionRate:F1} mL/hour";
+        operatorNameText.text = $"Operator: {operatorName}";
+        alarmEventsText.text = "Alarm Events: None";
+    }
+
+    public IEnumerator UpdateInfusionPumpData()
+    {
+        while (!infusionComplete)
+        {
+            elapsedTime += updateInterval;
+
+            
+            float currentRate = Mathf.Lerp(initialInfusionRate, finalInfusionRate, elapsedTime / infusionDuration);
+            float infusedThisInterval = (currentRate / 3600f) * updateInterval;
+            float outputThisInterval = (outputRate / 3600f) * updateInterval;
+
+            totalInfused += infusedThisInterval;
+            totalOutput += outputThisInterval;
+
+            
+            fluidBalance = totalInfused - totalOutput;
+
+            
+            totalVolumeInfusedText.text = $"Total Infused: {totalInfused:F1} mL";
+            intakeText.text = $"Intake: {totalInfused:F1} mL";
+            outputText.text = $"Output: {totalOutput:F1} mL";
+            fluidBalanceText.text = $"Fluid Balance: {fluidBalance:F1} mL";
+
+            
+            if (elapsedTime >= infusionDuration)
+            {
+                infusionComplete = true;
+                alarmEventsText.text = "Alarm Events: Infusion Complete";
+            }
+
+            
+            AppendToCSV(currentRate);
+
+            yield return new WaitForSeconds(updateInterval);
+        }
+    }
+
+    public void AppendToCSV(float currentRate)
+    {
+        using (StreamWriter writer = new StreamWriter(csvFilePath, true))
+        {
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            string alarm = infusionComplete ? "Infusion Complete" : "None";
+
+            writer.WriteLine($"{timestamp},{currentRate:F1},{totalInfused:F1},{outputRate:F1},{fluidBalance:F1},{alarm},{operatorName}");
+        }
+    }
+
+    
+    public void AdjustInfusionRate(float newRate)
+    {
+        finalInfusionRate = Mathf.Clamp(newRate, 0.0f, 500.0f);
+        finalRateText.text = $"Final Rate: {finalInfusionRate:F1} mL/hour";
+    }
+
+    public void AdjustOutputRate(float newRate)
+    {
+        outputRate = Mathf.Clamp(newRate, 0.0f, 500.0f);
+        outputText.text = $"Output: {totalOutput:F1} mL";
+    }
+}
