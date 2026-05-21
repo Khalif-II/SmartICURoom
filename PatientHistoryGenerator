@@ -1,0 +1,170 @@
+using System.Collections;
+using UnityEngine;
+using TMPro;
+
+public class PatientHistoryGenerator : MonoBehaviour
+{
+    
+    public TextMeshProUGUI patientHistoryText;
+
+    
+    public LabResultsGenerator labResultsGenerator; 
+   
+
+    
+    private string chiefComplaint = "Shortness of breath and chest pain.";
+    private string[] symptoms = { "Fatigue", "Cough", "Mild fever", "Dizziness" };
+    private string relevantHistory = "Recent hospitalization for atrial fibrillation.";
+    private string pastMedicalHistory = "Hypertension, Diabetes Mellitus, Obstructive Sleep Apnea.";
+
+    private string[] systems = new string[]
+    {
+        "Constitutional: Mild fatigue.",
+        "HEENT: No acute findings.",
+        "CV: Tachycardia with irregular rhythm.",
+        "Resp: Crackles at lung bases.",
+        "GI: Normal bowel sounds.",
+        "GU: No abnormalities.",
+        "Neuro: Alert but mildly confused.",
+        "MSK: No swelling or tenderness.",
+        "Heme: Pale conjunctiva.",
+        "Skin: Warm and dry.",
+        "Endocrine: No goiter or thyroid tenderness."
+    };
+
+    private string physicalExam = "General: Alert but fatigued. Cardiovascular: Irregular rhythm with tachycardia. Lungs: Crackles at bases. Abdomen: Soft, non-tender. Skin: No rashes or lesions.";
+    private string[] imaging = { "Chest X-ray: Mild infiltrates in left lower lobe.", "CT Chest: Segmental pulmonary embolism.", "EKG: Atrial fibrillation with RVR." };
+    private string[] problems = { "Pulmonary Embolus", "Possible Pneumonia", "Anemia", "Smoking Cessation" };
+    private string assessmentPlan = "1. Start anticoagulation therapy.\n2. Empiric antibiotics for possible pneumonia.\n3. Monitor oxygenation and hemodynamic stability.\n4. Discuss smoking cessation strategies.";
+
+    private float updateInterval = 5.0f; 
+
+    void Start()
+    {
+        
+        UpdatePatientHistory();
+        StartCoroutine(PeriodicUpdate());
+    }
+
+    private void UpdatePatientHistory()
+    {
+        
+        string report = "";
+
+        
+        report += $"<b>Chief Complaint:</b>\n{chiefComplaint}\n\n";
+
+        
+        report += $"<b>Symptoms:</b>\n{string.Join(", ", symptoms)}\n\n";
+
+        
+        report += $"<b>Relevant History:</b>\n{relevantHistory}\n\n";
+
+        
+        report += $"<b>Past Medical History:</b>\n{pastMedicalHistory}\n\n";
+
+       
+        report += $"<b>Review of Systems:</b>\n{string.Join("\n", systems)}\n\n";
+
+        
+        report += $"<b>Physical Examination:</b>\n{physicalExam}\n\n";
+
+        
+        report += "<b>Admission Labs and Vitals:</b>\n";
+        report += GetDynamicLabsAndVitals() + "\n\n";
+
+        
+        report += $"<b>Imaging:</b>\n{string.Join("\n", imaging)}\n\n";
+
+        
+        report += $"<b>Problem List:</b>\n- {string.Join("\n- ", problems)}\n\n";
+
+        
+        report += $"<b>Assessment & Plan:</b>\n{assessmentPlan}";
+
+        
+        patientHistoryText.text = report;
+    }
+
+    private string GetDynamicLabsAndVitals()
+    {
+        string labsAndVitals = "";
+
+        
+        if (labResultsGenerator != null)
+        {
+            var labResults = labResultsGenerator.GetRawLabResults();
+            labsAndVitals += $"WBC: {labResults["wbc"]:F2} x10^9/L\n" +
+                             $"CRP: {labResults["crp"]:F2} mg/L\n" +
+                             $"D-Dimer: {labResults["dDimer"]:F2} ng/mL\n" +
+                             $"ALT: {labResults["alt"]:F2} U/L\n" +
+                             $"AST: {labResults["ast"]:F2} U/L\n" +
+                             $"PaO2: {labResults["paO2"]:F2} mmHg\n" +
+                             $"Creatinine: {labResults["creatinine"]:F2} mg/dL\n" +
+                             $"PaCO2: {labResults["paCO2"]:F2} mmHg\n" +
+                             $"pH: {labResults["pH"]:F2}\n";
+        }
+
+        
+       
+        {
+            
+        }
+
+        return labsAndVitals;
+    }
+
+    private IEnumerator PeriodicUpdate()
+    {
+        while (true)
+        {
+            
+            SimulateNewData();
+            UpdatePatientHistory();
+            yield return new WaitForSeconds(updateInterval);
+        }
+    }
+
+    private void SimulateNewData()
+    {
+        
+        if (Random.value > 0.8f)
+        {
+            symptoms[Random.Range(0, symptoms.Length)] = "New onset chest discomfort";
+        }
+
+        if (Random.value > 0.9f)
+        {
+            imaging[1] = "CT Chest: No significant changes.";
+        }
+    }
+    public string GetPatientHistory(string section = "full")
+    {
+        if (section == "full")
+        {
+            return patientHistoryText.text; 
+        }
+
+        
+        switch (section.ToLower())
+        {
+            case "chief complaint":
+                return $"Chief Complaint: {chiefComplaint}";
+            case "symptoms":
+                return $"Symptoms: {string.Join(", ", symptoms)}";
+            case "relevant history":
+                return $"Relevant History: {relevantHistory}";
+            case "past medical history":
+                return $"Past Medical History: {pastMedicalHistory}";
+            case "physical exam":
+                return $"Physical Examination: {physicalExam}";
+            case "imaging":
+                return $"Imaging: {string.Join("\n", imaging)}";
+            case "assessment and plan":
+                return $"Assessment & Plan: {assessmentPlan}";
+            default:
+                return "Section not found.";
+        }
+    }
+
+}
