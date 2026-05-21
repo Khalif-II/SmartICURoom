@@ -1,0 +1,146 @@
+using System.Collections;
+using System.IO;
+using UnityEngine;
+using TMPro;
+
+public class VentilationStatusSimulation : MonoBehaviour
+{
+    
+    public TMP_Text tidalVolumeText;
+    public TMP_Text fio2Text;
+    public TMP_Text peepText;
+    public TMP_Text peakAirwayPressureText;
+    public TMP_Text plateauPressureText;
+    public TMP_Text minuteVentilationText;
+    public TMP_Text spirometryValuesText;
+    public TMP_Text peakFlowMeterText;
+
+    
+    public float tidalVolume = 500f; 
+    public float fio2 = 0.21f; 
+    public float peep = 5f; 
+    public float peakAirwayPressure = 20f; 
+    public float plateauPressure = 15f; 
+    public float respiratoryRate = 12f; 
+    private float minuteVentilation; 
+
+    
+    public float forcedVitalCapacity = 3500f; 
+    public float forcedExpiratoryVolume = 2800f; 
+    public float peakExpiratoryFlow = 450f;
+
+   
+    private float personalBest = 0f; 
+    private float[] peakFlowAttempts = new float[3];
+    private int attemptCount = 0;
+
+    
+    
+    public string customCSVPath;
+    private string csvFilePath;
+
+    private float elapsedTime = 0.0f;
+
+    void Start()
+    {
+        csvFilePath = string.IsNullOrEmpty(customCSVPath)
+            ? Path.Combine(Application.persistentDataPath, "VentilationStatus.csv")
+            : customCSVPath;
+
+        InitializeCSVFile();
+        StartCoroutine(UpdateVentilationStatus());
+    }
+
+    private void InitializeCSVFile()
+    {
+        if (!File.Exists(csvFilePath))
+        {
+            using (StreamWriter writer = new StreamWriter(csvFilePath, true))
+            {
+                writer.WriteLine("timestamp,tidal_volume,fio2,peep,peak_airway_pressure,plateau_pressure,minute_ventilation,personal_best,average_peak_flow");
+            }
+        }
+    }
+
+    private IEnumerator UpdateVentilationStatus()
+    {
+        while (true)
+        {
+            elapsedTime += 1.0f;
+
+            
+            tidalVolume = Random.Range(400f, 600f); 
+            peakAirwayPressure = Random.Range(18f, 25f); 
+            plateauPressure = peakAirwayPressure - Random.Range(2f, 5f); 
+            minuteVentilation = tidalVolume * respiratoryRate / 1000f; 
+
+            
+            tidalVolumeText.text = $"Tidal Volume: {tidalVolume:F1} mL";
+            fio2Text.text = $"FiO₂: {fio2 * 100:F1}%";
+            peepText.text = $"PEEP: {peep:F1} cmH₂O";
+            peakAirwayPressureText.text = $"Peak Airway Pressure: {peakAirwayPressure:F1} cmH₂O";
+            plateauPressureText.text = $"Plateau Pressure: {plateauPressure:F1} cmH₂O";
+            minuteVentilationText.text = $"Minute Ventilation: {minuteVentilation:F1} L/min";
+
+           
+            spirometryValuesText.text = $"Spirometry:\n" +
+                $"FVC: {forcedVitalCapacity:F1} mL\n" +
+                $"FEV₁: {forcedExpiratoryVolume:F1} mL\n" +
+                $"FEV₁/FVC Ratio: {forcedExpiratoryVolume / forcedVitalCapacity * 100:F1}%\n" +
+                $"PEF: {peakExpiratoryFlow:F1} L/min";
+
+            
+            float averagePeakFlow = CalculateAveragePeakFlow();
+            peakFlowMeterText.text = $"Peak Flow Meter:\n" +
+                $"Personal Best: {personalBest:F1} L/min\n" +
+                $"Average of Last 3 Attempts: {averagePeakFlow:F1} L/min\n" +
+                $"Date/Time: {System.DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+
+            AppendToCSV();
+
+            yield return new WaitForSeconds(1f);
+        }
+    }
+
+    private void AppendToCSV()
+    {
+        using (StreamWriter writer = new StreamWriter(csvFilePath, true))
+        {
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            writer.WriteLine($"{timestamp},{tidalVolume:F1},{fio2:F2},{peep:F1},{peakAirwayPressure:F1},{plateauPressure:F1},{minuteVentilation:F1},{personalBest:F1},{CalculateAveragePeakFlow():F1}");
+        }
+    }
+
+    
+    public void RecordPeakFlowAttempt(float value)
+    {
+        if (attemptCount < 3)
+        {
+            peakFlowAttempts[attemptCount] = value;
+            attemptCount++;
+        }
+        else
+        {
+            attemptCount = 0; 
+        }
+
+        personalBest = Mathf.Max(personalBest, value); 
+    }
+
+    private float CalculateAveragePeakFlow()
+    {
+        float total = 0f;
+        int count = 0;
+
+        foreach (float value in peakFlowAttempts)
+        {
+            if (value > 0)
+            {
+                total += value;
+                count++;
+            }
+        }
+
+        return count > 0 ? total / count : 0f;
+    }
+}
