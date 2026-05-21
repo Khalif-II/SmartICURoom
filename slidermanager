@@ -1,0 +1,113 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class SlideManager : MonoBehaviour
+{
+    [Header("GameObjects to Slide Out")]
+    public List<SlideObject> slideOutObjects; 
+
+    [Header("GameObjects to Slide In")]
+    public List<SlideObject> slideInObjects; 
+
+    public float slideDuration = 0.5f; 
+    private bool isSliding = false; 
+
+    private void Start()
+    {
+        
+        foreach (var obj in slideOutObjects)
+        {
+            if (obj != null)
+            {
+                obj.originalPosition = obj.transform.position; 
+            }
+        }
+
+        foreach (var obj in slideInObjects)
+        {
+            if (obj != null)
+            {
+                obj.originalPosition = obj.transform.position; 
+            }
+        }
+    }
+
+    public void TriggerSlide()
+    {
+        if (isSliding) return; 
+        isSliding = true;
+
+        
+        foreach (var obj in slideOutObjects)
+        {
+            if (obj != null)
+            {
+                Vector3 slideOutTarget = obj.originalPosition + obj.slideDirection; 
+                StartCoroutine(SlideCoroutine(obj.transform, slideOutTarget));
+            }
+        }
+
+        
+        foreach (var obj in slideInObjects)
+        {
+            if (obj != null)
+            {
+                Vector3 slideInTarget = obj.originalPosition - obj.slideDirection; 
+                StartCoroutine(SlideCoroutine(obj.transform, slideInTarget));
+            }
+        }
+    }
+
+    public void TriggerReverseSlide()
+    {
+        if (isSliding) return; 
+        isSliding = true;
+
+        
+        foreach (var obj in slideOutObjects)
+        {
+            if (obj != null)
+            {
+                StartCoroutine(SlideCoroutine(obj.transform, obj.originalPosition)); 
+            }
+        }
+
+        
+        foreach (var obj in slideInObjects)
+        {
+            if (obj != null)
+            {
+                StartCoroutine(SlideCoroutine(obj.transform, obj.originalPosition)); 
+            }
+        }
+    }
+
+    private IEnumerator SlideCoroutine(Transform transform, Vector3 endPosition)
+    {
+        Vector3 startPosition = transform.position;
+        float elapsedTime = 0f;
+
+        
+        while (elapsedTime < slideDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            transform.position = Vector3.Lerp(startPosition, endPosition, elapsedTime / slideDuration);
+            yield return null;
+        }
+
+        
+        transform.position = endPosition;
+
+        
+        isSliding = false;
+    }
+}
+
+[System.Serializable]
+public class SlideObject
+{
+    public Transform transform; 
+    public Vector3 slideDirection; 
+    [HideInInspector] public Vector3 originalPosition; 
+}
