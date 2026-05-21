@@ -1,0 +1,43 @@
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+
+public class LabResultsSummaryGenerator : MonoBehaviour
+{
+  
+    public LabResultsGenerator labResultsGenerator;
+
+   
+    public TMP_Text labResultsSummaryText;
+
+    
+    public void UpdateLabResultsSummary()
+    {
+        
+        if (labResultsGenerator == null)
+        {
+            labResultsSummaryText.text = "Lab results are unavailable.";
+            return;
+        }
+
+        
+        Dictionary<string, float> labResults = labResultsGenerator.GetRawLabResults();
+
+        
+        labResultsSummaryText.text = $"WBC: {labResults["wbc"]:F2} | " +
+                                     $"CRP: {labResults["crp"]:F2} | " +
+                                     $"DD: {labResults["dDimer"]:F2} | " +
+                                     $"ALT: {labResults["alt"]:F2} | " +
+                                     $"AST: {labResults["ast"]:F2} | " +
+                                     $"Cr: {labResults["creatinine"]:F2} | " +
+                                     $"paCO2: {labResults["paCO2"]:F2} | " +
+                                     $"pH: {labResults["pH"]:F2} | " +
+                                     $"paO2: {labResults["paO2"]:F2} | " +
+                                     $"VL: {labResults["viralLoad"]:F0}";
+    }
+
+    private void Update()
+    {
+        UpdateLabResultsSummary();
+    }
+}
