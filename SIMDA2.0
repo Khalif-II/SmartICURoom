@@ -1,0 +1,964 @@
+using UnityEngine;
+using TMPro;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.CognitiveServices.Speech;
+using System.Net.Http;
+using System.Text;
+using Newtonsoft.Json;
+using MathNet.Numerics.Distributions;
+
+
+public class VoiceAssistant : MonoBehaviour
+{
+    public TMP_Text clinicianText;
+    public TextMeshProUGUI aiResponseText;
+    public TMP_Text aiResponseText; 
+    public TMP_InputField commandInputField; 
+    public PatientDataManager patientDataManager;
+    public QueryManager queryManager;
+    public ICUKnowledgeBank icuKnowledgeBank;
+   
+
+    public EHRGenerator ehrGenerator;
+    public PatientHistoryGenerator patientHistoryGenerator;
+
+
+
+    public delegate void AICommandProcessed(string command);
+    public event AICommandProcessed OnAICommandProcessed;
+    public Color highlightColor = Color.yellow;
+    private Color originalColor;
+
+    private string azureSubscriptionKey = 
+    private string azureRegion = 
+    private string openAIApiKey = 
+    private SpeechRecognizer speechRecognizer;
+    private bool isListeningForCommands = false; 
+    private Dictionary<string, GameObject> sceneObjects;
+    public GameObject notificationIndicator;
+
+    async void Start()
+    {
+        Debug.Log("SIMDA AI Voice Assistant is active");
+
+        
+        sceneObjects = new Dictionary<string, GameObject>();
+        foreach (var obj in GameObject.FindGameObjectsWithTag("Interactable"))
+        {
+            sceneObjects[obj.name.ToLower()] = obj;
+            
+        }
+
+        
+        if (queryManager != null)
+        {
+            queryManager.OnResponseReceived += DisplayAIResponse;
+        }
+        
+
+        try
+        {
+            var speechConfig = SpeechConfig.FromSubscription(azureSubscriptionKey, azureRegion);
+            speechRecognizer = new SpeechRecognizer(speechConfig);
+
+            speechRecognizer.Recognizing += (s, e) => Debug.Log($"Recognizing: {e.Result.Text}");
+            speechRecognizer.Recognized += async (s, e) => await ProcessTranscription(e.Result.Text);
+
+            Debug.Log("SIMDA is ready and waiting for the wake word.");
+            await speechRecognizer.StartContinuousRecognitionAsync();
+        }
+        
+    }
+
+    
+    private void DisplayAIResponse(string response)
+    {
+        aiResponseText.text = " " + response; 
+    }
+
+    
+    private void OnDestroy()
+    {
+        if (queryManager != null)
+        {
+            queryManager.OnResponseReceived -= DisplayAIResponse;
+        }
+    }
+
+
+    public void ProcessTextInputCommand()
+    {
+        string typedCommand = commandInputField.text;
+        if (!string.IsNullOrEmpty(typedCommand))
+        {
+            
+            clinicianText.text = "Clinician: " + typedCommand;
+
+            
+            ProcessTranscription(typedCommand);
+
+            
+            commandInputField.text = "";
+        }
+    }
+
+
+    private async Task ProcessTranscription(string transcription)
+    {
+        if (string.IsNullOrEmpty(transcription))
+        {
+          
+            return;
+        }
+
+        
+        clinicianText.text = "Clinician: " + transcription;
+
+        if (transcription.Trim().ToLower() == "simda")
+        {
+            
+            aiResponseText.text = "Yes";
+            isListeningForCommands = true;
+            return;
+        }
+
+        if (transcription.Trim().ToLower() == "that's all")
+        {
+            D
+            aiResponseText.text = "SIMDA: Command mode deactivated.";
+            isListeningForCommands = false;
+            return;
+        }
+
+        if (isListeningForCommands)
+        {
+           
+            
+            if (IsDirectDataRequest(transcription))
+            {
+                
+                ProcessDataRequest(ExtractDataType(transcription)); 
+                return;
+            }
+
+            
+            if (IsContextualQuestion(transcription) || IsAdvancedMedicalQuery(transcription))
+            {
+                
+                queryManager.SendAdvancedQuery(transcription); 
+                return;
+            }
+
+            
+            string response = await SendToOpenAI(transcription);
+            if (!string.IsNullOrEmpty(response))
+            {
+                aiResponseText.text = " " + response;
+               
+                ParseAndExecuteCommand(response); 
+            }
+            else
+            {
+                aiResponseText.text = "SIMDA: I'm sorry, I didn't understand that.";
+               
+            }
+        }
+        else
+        {
+           
+        }
+    }
+
+    public async Task ProvidePatientUpdate()
+    {
+        List<string> recommendations = patientDataManager.GetRecommendations(); 
+        if (recommendations.Count > 0)
+        {
+            string response = "Here are some recommendations:\n";
+            foreach (string recommendation in recommendations)
+            {
+                response += "- " + recommendation + "\n";
+            }
+
+            response += "\nThese recommendations are based on the following abnormal values:\n";
+            foreach (var data in patientDataManager.dataElements)
+            {
+                if (icuKnowledgeBank.thresholds.ContainsKey(data.Key) && icuKnowledgeBank.thresholds[data.Key].IsAbnormal(float.Parse(data.Value.text)))
+                {
+                    response += $"- {data.Key}: {data.Value.text}\n";
+                }
+            }
+
+            
+           aiResponseText.text = response;
+            await RespondWithText(response);
+            ShowNotification();
+        }
+        else
+        {
+            string noAbnormalitiesMessage = "All patient data is within normal ranges.";
+            aiResponseText.text = noAbnormalitiesMessage;
+            await RespondWithText(noAbnormalitiesMessage);
+            HideNotification();
+        }
+    }
+
+    private void ShowNotification()
+    {
+        if (notificationIndicator != null)
+        {
+            notificationIndicator.SetActive(true);
+        }
+    }
+
+    private void HideNotification()
+    {
+        if (notificationIndicator != null)
+        {
+            notificationIndicator.SetActive(false);
+        }
+    }
+
+    
+
+
+    private bool IsDirectDataRequest(string query)
+    {
+        string[] directDataKeywords = {
+        "what is the patient's", "alt", "ast", "tell me the patient's", "genetic risk factors", "ddimer",
+        "allergies", "show the patient's", "creatinine", "real-time", "heart rate", "blood pressure",
+        "oxygen saturation", "pao2", "wbc", "blood volume", "systolic bp", "viral load", "comorbidities",
+        "ph", "paco2", "crp", "family history", "patient name", "age", "gender", "insurance details",
+        "contact info", "temperature", "diastolic bp", "mean arterial pressure", "ecg", "co2",
+        "respiratory rate","patient history","chief complaint","symptoms","relevant history","past medical history","physical exam", "imaging","assessment and plan"
+    };
+
+        foreach (string keyword in directDataKeywords)
+        {
+            if (query.ToLower().Contains(keyword.ToLower()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private string ExtractDataType(string query)
+    {
+        
+        Dictionary<string, string> dataTypeMappings = new Dictionary<string, string>
+    {
+        { "heart rate", "heart rate" },
+        { "blood pressure", "blood pressure" },
+        { "temperature", "temperature" },
+        { "oxygen saturation", "oxygen saturation" },
+        { "respiratory rate", "respiratory rate" },
+        { "systolic bp", "systolic bp" },
+        { "diastolic bp", "diastolic bp" },
+        {"ecg" ,"ecg"},
+        {"co2" ,"co2"},
+        {"mean arterial pressure" ,"mean arterial pressure"},
+        {"blood volume" ,"blood volume"},
+        {"patient name" ,"patient name"},
+        {"age" ,"age"},
+        {"gender" ,"gender"},
+        {"contact info" ,"contact info"},
+        {"insurance details", "insurance details"},
+        {"comorbidities" ,"comorbidities"},
+        {"family history" ,"family history"},
+        {"allergies" ,"allergies"},
+        {"genetic risk factors" ,"genetic risk factors"},
+        {"wbc", "wbc"},
+        {"crp" ,"crp"},
+        {"alt", "alt"},
+        {"ast" ,"ast"},
+        {"pao2","pao2"},
+        {"ddimer" ,"ddimer"},
+        {"creatinine" ,"creatinine"},
+        {"paco2" ,"paco2"},
+        {"ph" ,"ph"},
+        {"viral load" ,"viral load"},
+        { "chief complaint", "Chief Complaint" },
+        { "symptoms", "Symptoms" },
+        { "relevant history", "Relevant History" },
+        { "past medical history", "Past Medical History" },
+        { "physical exam", "Physical Exam" },
+        { "imaging", "Imaging" },
+        { "assessment and plan", "Assessment and Plan" },
+        {"patient history", "patient history" }
+       
+       
+        
+    };
+
+        foreach (var entry in dataTypeMappings)
+        {
+            if (query.ToLower().Contains(entry.Key))
+            {
+                return entry.Value;
+            }
+        }
+
+        return string.Empty;  
+    }
+
+
+    private bool IsContextualQuestion(string query)
+    {
+        string[] contextualPhrases = { "what if", "why is", "what happens if", "could it mean", "if the" };
+
+        foreach (string phrase in contextualPhrases)
+        {
+            if (query.ToLower().Contains(phrase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
+    private bool IsAdvancedMedicalQuery(string query)
+    {
+        
+        string[] advancedKeywords = {"antifungals", "rate is high","rate is low","blood pressure is high", "blood pressure is low","voriconazole", "fluconazole", "antiviral therapy", "acyclovir", "ganciclovir",
+        "broad-spectrum antibiotics", "antimicrobial stewardship", "line sepsis", "infectious disease protocol","patient vitals signs are abnormal", "the patient's heart rate is high", "the patient's heart rate is low",
+        "biofilm infection", "resistant infections", "carbapenem-resistant Enterobacteriaceae", "CRE",
+        "multidrug-resistant organisms", "MDRO", "nosocomial infections", "ICU infection control","tumor lysis syndrome", "acute porphyria", "malignant hyperthermia", "severe anaphylaxis",
+        "fat embolism syndrome", "hepatorenal syndrome", "neuroleptic malignant syndrome",
+        "rhabdomyolysis", "thrombotic thrombocytopenic purpura", "TTP", "posterior reversible encephalopathy syndrome",
+        "PRES", "crush syndrome", "catastrophic antiphospholipid syndrome", "autoimmune encephalitis","high-frequency ventilation", "APRV", "airway pressure release ventilation", "PEEP",
+        "positive end-expiratory pressure", "FiO2", "fraction of inspired oxygen", "pulmonary compliance",
+        "bronchodilator therapy", "permissive hypercapnia", "prone positioning", "bronchospasm",
+        "pulmonary artery catheter", "hypoxic drive", "ventilator-associated lung injury", "VILI","coagulation", "thrombocytopenia", "disseminated intravascular coagulation", "DIC",
+        "antiplatelet therapy", "hemostasis", "platelet transfusion", "clotting factors", "hemoglobin",
+        "hematocrit", "blood transfusion protocol", "fresh frozen plasma", "cryoprecipitate", "plasma exchange","neuromuscular blockade", "train-of-four", "TOF monitoring", "NMBAs", "neuromuscular blocking agents",
+        "pain assessment", "numeric rating scale", "NRS", "behavioral pain scale", "BPS",
+        "critical care pain observation tool", "CPOT", "sedation interruption", "targeted sedation",
+        "encephalopathy", "delirium", "hypoxic ischemic encephalopathy", "HIE", "post-ICU syndrome",
+        "memory impairment", "depression", "sleep disturbance", "cognitive dysfunction","enteral feeding", "parenteral feeding", "tube feeding", "caloric requirements", "protein intake",
+        "nutrition assessment", "hypoalbuminemia", "hyperglycemia management", "caloric deficit",
+        "re-feeding syndrome", "anorexia in critical care", "metabolic derangements", "resting energy expenditure",
+        "total energy expenditure", "parenteral nutrition", "hypernatremia", "hyponatremia", "hypocalcemia", "rehabilitation", "physical therapy", "occupational therapy", "psychological support",
+        "post-intensive care syndrome", "muscle weakness", "ICU-acquired weakness", "ICU psychosis",
+        "long-term recovery", "functional impairment", "quality of life", "deconditioning", "midodrine", "vasopressin", "phenylephrine", "methylnaltrexone", "pancuronium", "sufentanil",
+        "remifentanil", "dexmedetomidine", "zolpidem", "zofran", "ondansetron", "esmolol", "labetalol",
+        "antifungal therapy", "antiviral therapy", "azithromycin", "piperacillin-tazobactam",
+        "immunosuppressants", "mycophenolate", "cyclosporine", "tacrolimus", "IVIG", "intravenous immunoglobulin","ACLS", "advanced cardiac life support", "BLS", "basic life support", "CPR", "code blue",
+        "rapid sequence intubation", "RSI", "ALS", "advanced life support", "MEWS", "modified early warning score",
+        "sepsis protocol", "ARDS protocol", "ventilator weaning protocol", "sedation vacation","infection control", "isolation protocol", "aseptic technique", "antibiotic stewardship",
+        "wound care", "line sepsis", "central line infection", "catheter care", "hand hygiene", "PPE","DNR", "do not resuscitate", "end-of-life care", "palliative care", "family support",
+        "ethics", "patient consent", "advance directive", "comfort care", "withdrawal of care","indicate", "protocol", "ICU", "management", "guidelines", "ICU", "sepsis", "interpret", "treatment", "significance","what if","how will","where is", "sedation", "bradycardia" };
+
+        foreach (string keyword in advancedKeywords)
+        {
+            if (query.ToLower().Contains(keyword.ToLower()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    private async void ProcessDataRequest(string dataType)
+    {
+        if (dataType == "Patient History" || dataType.ToLower().Contains("history"))
+        {
+            
+            if (patientHistoryGenerator != null)
+            {
+                string history = patientHistoryGenerator.GetPatientHistory();
+                if (!string.IsNullOrEmpty(history))
+                {
+                    aiResponseText.text = history; 
+                    await RespondWithText(history); 
+                    return;
+                }
+                else
+                {
+                    aiResponseText.text = "I'm sorry, I couldn't retrieve the patient history.";
+                    
+                }
+            }
+            else
+            {
+                aiResponseText.text = "Patient history generator is not assigned.";
+               
+            }
+            return;
+        }
+
+        TMP_Text dataElement = patientDataManager.GetDataElement(dataType.ToLower());
+
+        if (dataElement != null)
+        {
+            HighlightDataElement(dataElement);
+            string responseText = $" {dataType}  {dataElement.text}.";
+            aiResponseText.text = " " + responseText;
+            await RespondWithText(responseText);
+        }
+        else
+        {
+            aiResponseText.text = $"I'm sorry, I couldn't find information on {dataType}.";
+            
+        }
+    }
+    private void HighlightDataElement(TMP_Text dataElement)
+    {
+        
+        originalColor = dataElement.color;
+
+        
+        dataElement.color = highlightColor;
+
+        
+        Invoke("ResetHighlight", 3f);
+    }
+
+    
+    private void ResetHighlight()
+    {
+        foreach (var element in patientDataManager.dataElements.Values)
+        {
+            element.color = originalColor;
+        }
+    }
+
+    
+
+
+    public async Task<string> SendToOpenAI(string query)
+    {
+      
+
+        using (HttpClient client = new HttpClient())
+        {
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {openAIApiKey}");
+
+            
+            var requestBody = new
+            {
+                model = "gpt-3.5-turbo",
+                messages = new[]
+                {
+                new { role = "system", content = "You are a Unity assistant that interprets commands to interact with objects in a 3D scene. Respond only with actions or object names, not code." },
+                new { role = "user", content = query }
+            },
+                max_tokens = 150,
+                temperature = 0.5
+            };
+
+            string jsonContent = JsonConvert.SerializeObject(requestBody);
+            HttpContent content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            try
+            {
+                HttpResponseMessage response = await client.PostAsync("https://api.openai.com/v1/chat/completions", content);
+                string result = await response.Content.ReadAsStringAsync();
+                
+
+                var responseJson = JsonConvert.DeserializeObject<OpenAIResponse>(result);
+
+                
+                if (responseJson?.choices != null && responseJson.choices.Length > 0 && !string.IsNullOrEmpty(responseJson.choices[0].message.content))
+                {
+                    return responseJson.choices[0].message.content.Trim();
+                }
+                else
+                {
+                    
+                    return "I'm sorry, I couldn't understand the request. Please try again.";
+                }
+            }
+            catch (System.Exception ex)
+            {
+               
+                return "There was an error processing the request. Please try again later.";
+            }
+        }
+    }
+
+
+    public void DisplayResponse(string response)
+    {
+        aiResponseText.text = "AI Assistant: " + response;
+    }
+
+
+
+    private void ParseAndExecuteCommand(string command)
+    {
+        
+
+        
+        command = command.ToLower();
+        command = command.Replace(",", "").Replace(".", "");
+
+        string targetObject = "";
+        string referenceObject = "";
+        string action = "";
+
+        
+        if (command.Contains("ecg"))
+        {
+            ProcessDataRequest("ECG");
+            return;
+        }
+        else if (command.Contains("heart rate"))
+        {
+            ProcessDataRequest("Heart rate");
+            return;
+        }
+        else if (command.Contains("respiratory rate"))
+        {
+            ProcessDataRequest("Respiratory Rate");
+            return;
+        }
+        else if (command.Contains("systolic bp") || command.Contains("systolic blood pressure"))
+        {
+            ProcessDataRequest("Systolic BP");
+            return;
+        }
+        else if (command.Contains("diastolic bp") || command.Contains("diastolic blood pressure"))
+        {
+            ProcessDataRequest("Diastolic BP");
+            return;
+        }
+        else if (command.Contains("temperature"))
+        {
+            ProcessDataRequest("Temperature");
+            return;
+        }
+        else if (command.Contains("oxygen saturation"))
+        {
+            ProcessDataRequest("Oxygen Saturation");
+            return;
+        }
+        else if (command.Contains("capnogram"))
+        {
+            ProcessDataRequest("Capnogram");
+            return;
+        }
+        else if (command.Contains("co2"))
+        {
+            ProcessDataRequest("Co2");
+            return;
+        }
+        else if (command.Contains("mean arterial pressure"))
+        {
+            ProcessDataRequest("Mean Arterial Pressure");
+            return;
+        }
+        else if (command.Contains("blood volume"))
+        {
+            ProcessDataRequest("BloodVolume");
+            return;
+        }
+        else if (command.Contains("patient name"))
+        {
+            ProcessDataRequest("Patient Name");
+            return;
+        }
+        else if (command.Contains("age"))
+        {
+            ProcessDataRequest("Age");
+            return;
+        }
+        else if (command.Contains("gender"))
+        {
+            ProcessDataRequest("Gender");
+            return;
+        }
+        else if (command.Contains("contact info") || command.Contains("contact information"))
+        {
+            ProcessDataRequest("Contact Info");
+            return;
+        }
+        else if (command.Contains("insurance details"))
+        {
+            ProcessDataRequest("Insurance Details");
+            return;
+        }
+        else if (command.Contains("comorbidities"))
+        {
+            ProcessDataRequest("Comorbidities Text");
+            return;
+        }
+        else if (command.Contains("family history"))
+        {
+            ProcessDataRequest("Family History");
+            return;
+        }
+        else if (command.Contains("allergies"))
+        {
+            ProcessDataRequest("Allergies");
+            return;
+        }
+        else if (command.Contains("genetic risk factors"))
+        {
+            ProcessDataRequest("Genetic Risk Factors");
+            return;
+        }
+        else if (command.Contains("wbc"))
+        {
+            ProcessDataRequest("WBC");
+            return;
+        }
+        else if (command.Contains("crp"))
+        {
+            ProcessDataRequest("CRP");
+            return;
+        }
+        else if (command.Contains("ddimer") || command.Contains("d-dimer"))
+        {
+            ProcessDataRequest("dDimer");
+            return;
+        }
+        else if (command.Contains("alt"))
+        {
+            ProcessDataRequest("alt");
+            return;
+        }
+        else if (command.Contains("ast"))
+        {
+            ProcessDataRequest("ast");
+            return;
+        }
+        else if (command.Contains("pao2"))
+        {
+            ProcessDataRequest("paO2");
+            return;
+        }
+        else if (command.Contains("creatinine"))
+        {
+            ProcessDataRequest("Creatinine");
+            return;
+        }
+        else if (command.Contains("paco2"))
+        {
+            ProcessDataRequest("paCO2");
+            return;
+        }
+        else if (command.Contains("ph"))
+        {
+            ProcessDataRequest("pH");
+            return;
+        }
+        else if (command.Contains("viral load"))
+        {
+            ProcessDataRequest("Viral Load");
+            return;
+        }
+        else if (command.Contains("patient history"))
+        {
+            ProcessDataRequest("Patient History");
+            return;
+        }
+        else if (command.Contains("Chief Complainty"))
+        {
+            ProcessDataRequest("Chief Complaint");
+            return;
+        }
+
+        else if (command.Contains("Symptoms"))
+        {
+            ProcessDataRequest("Symptoms");
+            return;
+        }
+
+        else if (command.Contains("Relevant History"))
+        {
+            ProcessDataRequest("Relevant History");
+            return;
+        }
+
+        else if (command.Contains("Past Medical History"))
+        {
+            ProcessDataRequest("Past Medical History");
+            return;
+        }
+
+        else if (command.Contains("Physical Exam"))
+        {
+            ProcessDataRequest("Physical Exam");
+            return;
+        }
+
+        else if (command.Contains("Imaging"))
+        {
+            ProcessDataRequest("Imaging");
+            return;
+        }
+        else if (command.Contains("Assessment and Plan"))
+        {
+            ProcessDataRequest("Assessment and Plan");
+            return;
+        }
+
+
+        if (command.Contains("move") || command.Contains("moving"))
+        {
+            action = "move";
+        }
+        else if (command.Contains("highlight") || command.Contains("highlighting"))
+        {
+            action = "highlight";
+        }
+        else if (command.Contains("rotate") || command.Contains("rotating"))
+        {
+            action = "rotate";
+        }
+        else if (command.Contains("show") || command.Contains("showing"))
+        {
+            action = "show";
+        }
+        else if (command.Contains("hide") || command.Contains("hiding"))
+        {
+            action = "hide";
+        }
+        else if (command.Contains("scale") || command.Contains("scaling"))
+        {
+            action = "scale";
+        }
+
+        
+        foreach (var objName in sceneObjects.Keys)
+        {
+            if (command.Contains(objName))
+            {
+                if (string.IsNullOrEmpty(targetObject))
+                {
+                    targetObject = objName;
+                }
+                else if (string.IsNullOrEmpty(referenceObject) && objName != targetObject)
+                {
+                    referenceObject = objName;
+                    break;
+                }
+            }
+        }
+
+        
+        
+
+       
+        if (!string.IsNullOrEmpty(action) && !string.IsNullOrEmpty(targetObject))
+        {
+            switch (action)
+            {
+                case "move":
+                    if (!string.IsNullOrEmpty(referenceObject))
+                    {
+                        MoveObjectBeside(targetObject, referenceObject);
+                    }
+                    else
+                    {
+                        
+                    }
+                    break;
+
+                case "highlight":
+                    HighlightObject(targetObject);
+                    break;
+
+                case "rotate":
+                    RotateObject(targetObject, command);
+                    break;
+
+                case "show":
+                    ShowObject(targetObject);
+                    break;
+
+                case "hide":
+                    HideObject(targetObject);
+                    break;
+
+                case "scale":
+                    ScaleObject(targetObject, command);
+                    break;
+
+                default:
+                    
+                    break;
+            }
+        }
+        
+        OnAICommandProcessed?.Invoke(command);
+    }
+
+    private void ScaleObject(string objectName, string command)
+    {
+        if (sceneObjects.ContainsKey(objectName))
+        {
+            GameObject obj = sceneObjects[objectName];
+            Vector3 scaleChange = new Vector3(0.1f, 0.1f, 0.1f); 
+
+            
+            if (command.Contains("up"))
+            {
+                obj.transform.localScale += scaleChange; 
+               
+            }
+            else if (command.Contains("down"))
+            {
+                obj.transform.localScale -= scaleChange; 
+               
+            }
+            else
+            {
+                
+            }
+        }
+        else
+        {
+            
+        }
+    }
+
+
+    private void RotateObject(string objectName, string command)
+    {
+        if (sceneObjects.ContainsKey(objectName))
+        {
+            GameObject obj = sceneObjects[objectName];
+            float angle = 45f; 
+
+            
+            string[] words = command.Split(' ');
+            foreach (string word in words)
+            {
+                if (float.TryParse(word, out float parsedAngle))
+                {
+                    angle = parsedAngle;
+                    break;
+                }
+            }
+
+            obj.transform.Rotate(Vector3.up, angle);
+            
+        }
+        else
+        {
+            
+        }
+    }
+
+    private void ShowObject(string objectName)
+    {
+        if (sceneObjects.ContainsKey(objectName))
+        {
+            GameObject obj = sceneObjects[objectName];
+            Renderer renderer = obj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.enabled = true; 
+                
+            }
+        }
+        else
+        {
+           
+        }
+    }
+
+
+    private void HideObject(string objectName)
+    {
+        if (sceneObjects.ContainsKey(objectName))
+        {
+            GameObject obj = sceneObjects[objectName];
+            Renderer renderer = obj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.enabled = false; 
+                
+            }
+        }
+        
+    }
+
+
+    
+    private void RotateObject(string command)
+    {
+        
+        
+    }
+
+    
+    private void GraphObjects(string command)
+    {
+       
+        
+    }
+
+    private void MoveObjectBeside(string objectToMove, string referenceObject)
+    {
+        if (sceneObjects.ContainsKey(objectToMove) && sceneObjects.ContainsKey(referenceObject))
+        {
+            GameObject objToMove = sceneObjects[objectToMove];
+            GameObject refObj = sceneObjects[referenceObject];
+
+            
+            Vector3 offsetPosition = refObj.transform.position + Vector3.right * 2;
+            objToMove.transform.position = offsetPosition;
+
+            
+        }
+        else
+        {
+           
+        }
+    }
+    private void HighlightObject(string objectName)
+    {
+        if (sceneObjects.ContainsKey(objectName))
+        {
+            GameObject obj = sceneObjects[objectName];
+            Renderer renderer = obj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.material.color = Color.yellow; 
+                
+            }
+        }
+        
+    }
+
+
+
+    private string[] GetObjectsFromCommand(string command, string startKeyword, string separator)
+    {
+        int startIndex = command.IndexOf(startKeyword) + startKeyword.Length;
+        int endIndex = command.IndexOf(separator, startIndex);
+        if (startIndex >= 0 && endIndex > startIndex)
+        {
+            string objectPhrase = command.Substring(startIndex, endIndex - startIndex).Trim();
+            return objectPhrase.Split(new string[] { " and ", " with ", "," }, System.StringSplitOptions.RemoveEmptyEntries);
+        }
+        return new string[0];
+    }
+
+    [System.Serializable]
+    public class OpenAIResponse
+    {
+        public Choice[] choices;
+
+        [System.Serializable]
+        public class Choice
+        {
+            public Message message;
+        }
+
+        [System.Serializable]
+        public class Message
+        {
+            public string role;
+            public string content;
+        }
+    }
+
+}
