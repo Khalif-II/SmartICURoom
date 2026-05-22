@@ -1,0 +1,163 @@
+using UnityEngine;
+using UnityEngine.Networking;
+using TMPro;
+using System.Collections;
+using System.IO;
+
+public class VoiceAssistantUnity : MonoBehaviour
+{
+    public TMP_Text clinicianText; 
+    public TextMeshProUGUI aiResponseText; 
+
+    private AudioClip recordedClip;
+    private const string STT_API_URL = "http://127.0.0.1:5009/stt";
+    private const string TTS_API_URL = "http://127.0.0.1:5009/tts";
+
+    void Start()
+    {
+        
+    }
+
+   
+    public void StartRecording()
+    {
+        if (Microphone.devices.Length > 0)
+        {
+            recordedClip = Microphone.Start(null, false, 10, 44100);
+            
+        }
+       
+    
+    }
+
+   
+    public void StopRecording()
+    {
+        if (Microphone.IsRecording(null))
+        {
+            Microphone.End(null);
+            StartCoroutine(SendAudioToSTT());
+        }
+    }
+
+    
+    private IEnumerator SendAudioToSTT()
+    {
+        string tempPath = Path.Combine(Application.persistentDataPath, "recording.wav");
+        SaveClipToWav(recordedClip, tempPath);
+
+        byte[] audioData = File.ReadAllBytes(tempPath);
+        
+
+        UnityWebRequest request = UnityWebRequest.PostWwwForm(STT_API_URL, "");
+        request.uploadHandler = new UploadHandlerRaw(audioData);
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "audio/wav");
+
+        yield return request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.Success)
+        {
+            string response = request.downloadHandler.text;
+           
+            clinicianText.text = "Clinician: " + response; 
+            StartCoroutine(GetAIResponse(response));
+        }
+        else
+        {
+            Debug.LogError($"STT Error: {request.error}");
+        }
+    }
+
+    
+    private IEnumerator GetAIResponse(string transcription)
+    {
+        string aiResponse = $"AI: You said '{transcription}'.";
+
+        aiResponseText.text = aiResponse; 
+        yield return StartCoroutine(SendTextToTTS(aiResponse)); 
+    }
+
+    
+    private IEnumerator SendTextToTTS(string text)
+    {
+        WWWForm form = new WWWForm();
+        form.AddField("text", text);
+
+        
+
+        UnityWebRequest request = UnityWebRequest.Post(TTS_API_URL, form);
+
+        yield return request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.Success)
+        {
+            
+            byte[] audioData = request.downloadHandler.data;
+            PlayAudioClipFromBytes(audioData); 
+        }
+        
+    }
+
+    private void PlayAudioClipFromBytes(byte[] audioData)
+    {
+        string tempPath = Path.Combine(Application.persistentDataPath, "response.wav");
+        File.WriteAllBytes(tempPath, audioData);
+
+        
+
+        StartCoroutine(PlayAudio(tempPath));
+    }
+
+    private IEnumerator PlayAudio(string filePath)
+    {
+        string url = $"file://{filePath}";
+
+        
+
+        using (UnityWebRequest request = UnityWebRequestMultimedia.GetAudioClip(url, AudioType.WAV))
+        {
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                
+
+                AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+                if (clip == null)
+                {
+                    
+                    yield break;
+                }
+
+                
+
+                AudioSource audioSource = gameObject.AddComponent<AudioSource>();
+                audioSource.clip = clip;
+                audioSource.Play();
+
+                
+            }
+            
+        }
+    }
+
+    
+    private void SaveClipToWav(AudioClip clip, string path)
+    {
+       
+        
+    }
+
+    
+    private void TestPlayAudioFromAssets()
+    {
+        AudioClip clip = Resources.Load<AudioClip>("output_audio");
+        if (clip != null)
+        {
+            AudioSource.PlayClipAtPoint(clip, Vector3.zero);
+            
+        }
+        
+    }
+}
