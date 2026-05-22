@@ -1,0 +1,907 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+
+public class VitalSignRendererController : MonoBehaviour
+{
+    [System.Serializable]
+    public class RenderObjects
+    {
+        public string name;
+        public GameObject[] highRenderObjects;
+        public GameObject[] lowRenderObjects;
+        public GameObject[] normalRenderObjects;
+        [HideInInspector] public string lastState;
+    }
+
+    [System.Serializable]
+    public class CombinationRender
+    {
+        public string name;
+        public string combinationKey;
+        public GameObject[] combinationObjects;
+        public TextMeshPro clinicalSignificanceText;
+        public int tier; 
+    }
+
+    public MultiMetricProgressBar multiMetricProgressBar;
+    public List<RenderObjects> vitalSignRenderObjects;
+    public List<CombinationRender> combinationRenderObjects;
+    public float showInterval = 0.5f;
+    public float hideInterval = 0.5f;
+
+    void Start()
+    {
+        foreach (var render in vitalSignRenderObjects)
+        {
+            var metric = FindMatchingMetric(render.name);
+            if (metric == null)
+            
+        }
+    }
+
+    void Update()
+    {
+        RenderVitalSigns();
+        RenderCombinations();
+    }
+
+    void RenderVitalSigns()
+    {
+        foreach (var render in vitalSignRenderObjects)
+        {
+            var metric = FindMatchingMetric(render.name);
+            if (metric == null)
+            {
+                
+                continue;
+            }
+
+            string currentState = "Normal";
+
+            
+            if (metric is MultiMetricProgressBar.BloodPressureMetric bpMetric)
+            {
+                string systolicValue = MultiMetricProgressBar.ExtractNumeric(bpMetric.systolicBP.text);
+                string diastolicValue = MultiMetricProgressBar.ExtractNumeric(bpMetric.diastolicBP.text);
+
+                if (float.TryParse(systolicValue, out float systolic) && float.TryParse(diastolicValue, out float diastolic))
+                {
+                    if (systolic > bpMetric.maxLimitSystolic || diastolic > bpMetric.maxLimitDiastolic)
+                        currentState = "High";
+                    else if (systolic < bpMetric.minLimitSystolic || diastolic < bpMetric.minLimitDiastolic)
+                        currentState = "Low";
+                    else
+                        currentState = "Normal";
+                }
+            }
+            else
+            {
+                float value = metric.GetValue();
+                if (value > metric.maxLimit) currentState = "High";
+                else if (value < metric.minLimit) currentState = "Low";
+            }
+
+            if (currentState != render.lastState)
+            {
+                if (render.lastState == "High") StartCoroutine(ReverseRender(render.highRenderObjects));
+                else if (render.lastState == "Low") StartCoroutine(ReverseRender(render.lowRenderObjects));
+                else if (render.lastState == "Normal") StartCoroutine(ReverseRender(render.normalRenderObjects));
+
+                if (currentState == "High") StartCoroutine(SequentialRender(render.highRenderObjects));
+                else if (currentState == "Low") StartCoroutine(SequentialRender(render.lowRenderObjects));
+                else if (currentState == "Normal") StartCoroutine(SequentialRender(render.normalRenderObjects));
+
+                render.lastState = currentState;
+            }
+        }
+    }
+
+
+    void RenderCombinations()
+    {
+        Dictionary<int, List<CombinationRender>> tieredCombinations = new Dictionary<int, List<CombinationRender>>();
+
+        
+        foreach (var combination in combinationRenderObjects)
+        {
+            if (!tieredCombinations.ContainsKey(combination.tier))
+                tieredCombinations[combination.tier] = new List<CombinationRender>();
+            tieredCombinations[combination.tier].Add(combination);
+        }
+
+        foreach (var tier in tieredCombinations.Keys)
+        
+        
+        for (int tier = 6; tier >= 2; tier--)
+        {
+            if (tieredCombinations.ContainsKey(tier))
+            {
+                bool tierTriggered = false;
+
+                foreach (var combination in tieredCombinations[tier])
+                {
+                  
+                    if (EvaluateCombination(combination.combinationKey))
+                    {
+                        tierTriggered = true;
+                        
+                        StartCoroutine(SequentialRender(combination.combinationObjects));
+                        if (combination.clinicalSignificanceText != null)
+                        {
+                            combination.clinicalSignificanceText.text = $"{combination.name}: Combination triggered!";
+                            combination.clinicalSignificanceText.gameObject.SetActive(true);
+                        }
+                    }
+                    else
+                    {
+                        if (combination.clinicalSignificanceText != null)
+                        {
+                           
+                            combination.clinicalSignificanceText.text = "";
+                            combination.clinicalSignificanceText.gameObject.SetActive(false);
+                        }
+                    }
+                }
+
+                if (tierTriggered) break; 
+            }
+        }
+    }
+
+
+
+    bool EvaluateCombination(string combinationKey)
+    {
+        if (!IsValidCombinationKey(combinationKey))
+        {
+            
+            return false;
+        }
+
+        
+
+        
+
+        switch (combinationKey)
+        {
+            case "HR+RR:Tachycardia+Tachypnea":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate");
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowMAP+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+MAP:Tachycardia+Tachypnea+Hypotension+LowMAP":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure");
+
+          
+            case "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowMAP+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Temperature");
+
+            case "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+SpO₂:Tachycardia+Tachypnea+Hypotension+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T: Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+MAP+SpO₂:Tachycardia+Tachypnea+LowMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+SpO₂+T:Tachycardia+Tachypnea+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+SpO₂+T:Tachycardia+Tachypnea+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂:Tachycardia+Tachypnea+HighMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+                
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+SpO₂:Tachycardia+Tachypnea+Hypertension+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Tachycardia+Hypotension+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+BP+SpO₂+T:Tachycardia+Hypotension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Tachycardia+Hypotension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+MAP+SpO₂+T:Tachycardia+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+SpO₂+T:Tachycardia+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+MAP+SpO₂+T:Tachycardia+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Tachycardia+Hypertension+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+BP+SpO₂+T:Tachycardia+Hypertension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Tachycardia+Hypertension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Bradypnea+LowMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+SpO₂+T:Tachycardia+Bradypnea+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Tachycardia+Bradypnea+HighMap+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+LowMap+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Bradycardia+Tachypnea+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+SpO₂+T:Bradycardia+Tachypnea+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Bradycardia+Tachypnea+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+                
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+BP+MAP+SpO₂+T:Bradycardia+Hypotension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+SpO₂+T:Bradycardia+Hypotension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Bradycardia+Hypotension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+MAP+SpO₂+T:Bradycardia+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+SpO₂+T:Bradycardia+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+MAP+SpO₂+T:Bradycardia+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Bradycardia+Hypertension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+SpO₂+T:Bradycardia+Hypertension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+BP+MAP+SpO₂+T:Bradycardia+Hypertension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+BP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Bradycardia+Bradypnea+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+SpO₂+T:Bradycardia+Bradypnea+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+MAP+SpO₂+T:Bradycardia+Bradypnea+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+LowMAP+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricHigh("Temperature");
+
+            case "HR+RR+BP+MAP:Bradycardia+Bradypnea+Hypertension+LowMAP":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure");
+
+            case "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+LowMAP+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowSpO₂+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+SpO₂:Bradycardia+Bradypnea+Hypertension+LowSpO₂":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation");
+
+
+            case "HR+RR+BP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+            case "HR+RR+BP+T:Bradycardia+Bradypnea+Hypertension+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP:Bradycardia+Bradypnea+Hypertension":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure");
+
+            case "HR+RR+BP+T:Bradycardia+Bradypnea+Hypertension+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP+SpO₂:Bradycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+                
+
+            case "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation") && IsMetricLow("Temperature");
+
+
+            case "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+HighMAP+Fever":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricHigh("Temperature");
+
+
+            case "HR+RR+BP+MAP:Bradycardia+Bradypnea+Hypertension+HighMAP":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure");
+
+            case "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+HighMAP+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Temperature");
+
+            case "RR+BP+T:Tachypnea+Hypertension+Fever":
+                return IsMetricHigh("Respiratory Rate") && IsMetricHigh("Blood Pressure") && IsMetricHigh("Temperature");
+
+            case "HR+RR:Bradycardia+Bradypnea":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate");
+
+            case "HR+BP:Tachycardia+Hypotension":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Blood Pressure");
+
+            case "HR+BP:Bradycardia+Hypertension":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Blood Pressure");
+
+            case "HR+RR+SpO₂:Tachycardia+Tachypnea+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+RR+SpO₂:Bradycardia+Bradypnea+LowSpO₂":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+RR+T:Tachycardia+Tachypnea+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Temperature");
+
+            case "HR+RR+T:Bradycardia+Bradypnea+Hypothermia":
+                return IsMetricLow("Heart Rate") && IsMetricLow("Respiratory Rate") && IsMetricLow("Temperature");
+
+            case "HR+MAP+SpO₂:Tachycardia+LowMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+            case "HR+MAP+SpO₂:Bradycardia+HighMAP+LowSpO₂":
+                return IsMetricLow("Heart Rate") && IsMetricHigh("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+
+            case "RR+T+SpO₂:Tachypnea+Fever+LowSpO₂":
+                return IsMetricHigh("Respiratory Rate") && IsMetricHigh("Temperature") && IsMetricLow("Oxygen Saturation");
+
+            case "RR+BP+SpO₂:Tachypnea+Hypotension+LowSpO₂":
+                return IsMetricHigh("Respiratory Rate") && IsMetricLow("Blood Pressure") && IsMetricLow("Oxygen Saturation");
+            case "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Fever":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") &&
+                       IsMetricLow("Blood Pressure") && IsMetricHigh("Mean Arterial Pressure") &&
+                       IsMetricLow("Oxygen Saturation") && IsMetricHigh("Temperature");
+
+            case "ALL:Tachycardia+Tachypnea+Fever+LowMAP+LowSpO₂":
+                return IsMetricHigh("Heart Rate") && IsMetricHigh("Respiratory Rate") && IsMetricHigh("Temperature") &&
+                                        IsMetricLow("Mean Arterial Pressure") && IsMetricLow("Oxygen Saturation");
+            default:
+               
+                return false;
+
+
+        }
+    }
+    void ValidateCombinationKeys()
+    {
+        foreach (var combination in combinationRenderObjects)
+        {
+            if (!IsValidCombinationKey(combination.combinationKey))
+            {
+               
+            }
+        }
+    }
+
+
+
+
+    bool AreMetricsHigh(string[] metricNames)
+    {
+        foreach (string metricName in metricNames)
+        {
+            if (!IsMetricHigh(metricName)) return false;
+        }
+        return true;
+    }
+
+    bool AreMetricsLow(string[] metricNames)
+    {
+        foreach (string metricName in metricNames)
+        {
+            if (!IsMetricLow(metricName)) return false;
+        }
+        return true;
+    }
+
+    private bool IsValidCombinationKey(string key)
+    {
+        var validKeys = new HashSet<string>
+        {
+            "HR+RR:Tachycardia+Tachypnea",
+            "HR+RR:Bradycardia+Bradypnea",
+            "HR+BP:Tachycardia+Hypotension",
+            "HR+BP:Bradycardia+Hypertension",
+            "HR+RR+SpO₂:Tachycardia+Tachypnea+LowSpO₂",
+            "HR+RR+SpO₂:Bradycardia+Bradypnea+LowSpO₂",
+            "HR+RR+T:Tachycardia+Tachypnea+Fever",
+            "HR+RR+T:Bradycardia+Bradypnea+Hypothermia",
+            "HR+MAP+SpO₂:Tachycardia+LowMAP+LowSpO₂",
+            "HR+MAP+SpO₂:Bradycardia+HighMAP+LowSpO₂",
+            "RR+T+SpO₂:Tachypnea+Fever+LowSpO₂",
+            "RR+BP+SpO₂:Tachypnea+Hypotension+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowMAP+Fever",
+            "HR+RR+BP+MAP:Tachycardia+Tachypnea+Hypotension+LowMAP",
+            "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowMAP+Hypothermia",
+            "HR+RR+BP+MAP+T:Tachycardia+Tachypnea+Hypotension+LowSpO₂+Fever",
+            "HR+RR+BP+SpO₂:Tachycardia+Tachypnea+Hypotension+LowSpO₂",
+            "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂: Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+LowMAP+LowSpO₂+Fever",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+SpO₂+T:Tachycardia+Tachypnea+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+HighMAP+LowSpO₂+Fever",
+            "HR+RR+MAP+SpO₂:Tachycardia+Tachypnea+HighMAP+LowSpO₂",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Tachypnea+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowSpO₂+Fever",
+            "HR+RR+BP+SpO₂:Tachycardia+Tachypnea+Hypertension+LowSpO₂",
+            "HR+RR+BP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+BP+MAP+SpO₂+T:Tachycardia+Hypotension+LowMAP+LowSpO₂+Fever",
+            "HR+BP+SpO₂+T:Tachycardia+Hypotension+LowSpO₂+Fever",
+            "HR+BP+MAP+SpO₂+T:Tachycardia+Hypotension+HighMAP+LowSpO₂+Fever",
+            "HR+MAP+SpO₂+T:Tachycardia+LowMAP+LowSpO₂+Fever",
+            "HR+SpO₂+T:Tachycardia+LowSpO₂+Fever",
+            "HR+MAP+SpO₂+T:Tachycardia+HighMAP+LowSpO₂+Fever",
+            "HR+BP+MAP+SpO₂+T:Tachycardia+Hypertension+LowMAP+LowSpO₂+Fever",
+            "HR+BP+SpO₂+T:Tachycardia+Hypertension+LowSpO₂+Fever",
+            "HR+BP+MAP+SpO₂+T:Tachycardia+Hypertension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+LowMAP+LowSpO₂+Fever",
+            "HR+RR+BP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypotension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Bradypnea+LowMAP+LowSpO₂+Fever",
+            "HR+RR+SpO₂+T:Tachycardia+Bradypnea+LowSpO₂+Fever",
+            "HR+RR+MAP+SpO₂+T:Tachycardia+Bradypnea+HighMap+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+LowMap+LowSpO₂+Fever",
+            "HR+RR+BP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Bradycardia+Tachypnea+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+SpO₂+T:Bradycardia+Tachypnea+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Bradycardia+Tachypnea+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Tachypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+BP+MAP+SpO₂+T:Bradycardia+Hypotension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+BP+SpO₂+T:Bradycardia+Hypotension+LowSpO₂+Hypothermia",
+            "HR+BP+MAP+SpO₂+T:Bradycardia+Hypotension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+MAP+SpO₂+T:Bradycardia+LowMAP+LowSpO₂+Hypothermia",
+            "HR+SpO₂+T:Bradycardia+LowSpO₂+Hypothermia",
+            "HR+MAP+SpO₂+T:Bradycardia+HighMAP+LowSpO₂+Hypothermia",
+            "HR+BP+MAP+SpO₂+T:Bradycardia+Hypertension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+BP+SpO₂+T:Bradycardia+Hypertension+LowSpO₂+Hypothermia",
+            "HR+BP+MAP+SpO₂+T:Bradycardia+Hypertension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypotension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Bradycardia+Bradypnea+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+SpO₂+T:Bradycardia+Bradypnea+LowSpO₂+Hypothermia",
+            "HR+RR+MAP+SpO₂+T:Bradycardia+Bradypnea+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+LowMAP+Fever",
+            "HR+RR+BP+MAP:Bradycardia+Bradypnea+Hypertension+LowMAP",
+            "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+LowMAP+Hypothermia",
+            "HR+RR+BP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+LowSpO₂+Fever",
+            "HR+RR+BP+SpO₂:Bradycardia+Bradypnea+Hypertension+LowSpO₂+Hypothermia",
+            "HR+RR+BP+T:Bradycardia+Bradypnea+Hypertension+Fever",
+            "HR+RR+BP+T:Bradycardia+Bradypnea+Hypertension",
+            "HR+RR+BP+T:Bradycardia+Bradypnea+Hypertension+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Fever",
+            "HR+RR+BP+MAP+SpO₂+T:Bradycardia+Bradypnea+Hypertension+HighMAP+LowSpO₂+Hypothermia",
+            "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+HighMAP+Fever",
+            "HR+RR+BP+MAP:Bradycardia+Bradypnea+Hypertension+HighMAP",
+            "HR+RR+BP+MAP+T:Bradycardia+Bradypnea+Hypertension+HighMAP+Hypothermia",
+            "HR+RR+BP+MAP+SpO₂+T:Tachycardia+Tachypnea+Hypotension+HighMAP+LowSpO₂+Fever",
+            "RR+BP+T:Tachypnea+Hypertension+Fever",
+            "ALL:Tachycardia+Tachypnea+Fever+LowMAP+LowSpO₂"
+        };
+        return validKeys.Contains(key);
+    }
+
+    IEnumerator SequentialRender(GameObject[] objectsToRender)
+    {
+        foreach (var obj in objectsToRender)
+        {
+            if (obj == null) continue;
+
+            ValidateParentActivation(obj);
+
+            if (!obj.activeSelf)
+                obj.SetActive(true);
+
+            var renderer = obj.GetComponent<Renderer>();
+            if (renderer != null && !renderer.enabled)
+                renderer.enabled = true;
+
+            yield return new WaitForSeconds(showInterval);
+        }
+    }
+
+    IEnumerator ReverseRender(GameObject[] objectsToHide)
+    {
+        for (int i = objectsToHide.Length - 1; i >= 0; i--)
+        {
+            var obj = objectsToHide[i];
+            if (obj == null) continue;
+
+            if (obj.activeSelf)
+                obj.SetActive(false);
+
+            yield return new WaitForSeconds(hideInterval);
+        }
+    }
+
+    void ValidateParentActivation(GameObject obj)
+    {
+        Transform parent = obj.transform.parent;
+        while (parent != null)
+        {
+            if (!parent.gameObject.activeSelf)
+                parent.gameObject.SetActive(true);
+
+            parent = parent.parent;
+        }
+    }
+
+    MultiMetricProgressBar.Metric FindMatchingMetric(string name)
+    {
+        
+        var metric = multiMetricProgressBar.metrics.Find(m =>
+            string.Equals(m.name.Trim(), name.Trim(), System.StringComparison.OrdinalIgnoreCase));
+        if (metric != null) return metric;
+
+        
+        var bpMetric = multiMetricProgressBar.bloodPressureMetrics.Find(m =>
+            string.Equals(m.name.Trim(), name.Trim(), System.StringComparison.OrdinalIgnoreCase));
+        if (bpMetric != null) return bpMetric;
+
+        
+        if (string.Equals(name.Trim(), "Mean Arterial Pressure", System.StringComparison.OrdinalIgnoreCase))
+        {
+            var systolicBPMetric = multiMetricProgressBar.bloodPressureMetrics.Find(m => m.systolicBP != null);
+            var diastolicBPMetric = multiMetricProgressBar.bloodPressureMetrics.Find(m => m.diastolicBP != null);
+
+            if (systolicBPMetric != null && diastolicBPMetric != null)
+            {
+                return new DynamicMetric(
+                    name: "Mean Arterial Pressure",
+                    baseline: 93f, 
+                    minLimit: 60f,
+                    maxLimit: 120f,
+                    calculateValue: () =>
+                    {
+                        string systolicValue = MultiMetricProgressBar.ExtractNumeric(systolicBPMetric.systolicBP.text);
+                        string diastolicValue = MultiMetricProgressBar.ExtractNumeric(diastolicBPMetric.diastolicBP.text);
+
+                        if (float.TryParse(systolicValue, out float systolic) && float.TryParse(diastolicValue, out float diastolic))
+                        {
+                            return (systolic + 2 * diastolic) / 3f;
+                        }
+                        return 93f; 
+                    }
+                );
+            }
+        }
+
+        return null; 
+    }
+
+    public class DynamicMetric : MultiMetricProgressBar.Metric
+{
+    private readonly System.Func<float> calculateValue;
+
+    public DynamicMetric(string name, float baseline, float minLimit, float maxLimit, System.Func<float> calculateValue)
+    {
+        this.name = name;
+        this.baseline = baseline;
+        this.minLimit = minLimit;
+        this.maxLimit = maxLimit;
+        this.calculateValue = calculateValue;
+    }
+
+    public override float GetValue()
+    {
+        return calculateValue();
+    }
+}
+
+
+
+    bool IsMetricHigh(string metricName)
+    {
+        if (metricName == "Blood Pressure")
+        {
+            
+            float systolic = GetSystolicBloodPressure();
+            float diastolic = GetDiastolicBloodPressure();
+
+            if (systolic < 0 || diastolic < 0)
+            {
+                
+                return false; 
+            }
+
+            
+            float meanArterialPressure = (systolic + 2 * diastolic) / 3;
+           
+
+            
+            float desiredHighThreshold = 100f; 
+
+            
+            return meanArterialPressure > desiredHighThreshold;
+        }
+
+        
+        var metric = FindMatchingMetric(metricName);
+        if (metric == null)
+        {
+          
+            return false;
+        }
+
+        float value = metric.GetValue();
+        
+        return value > metric.maxLimit;
+    }
+
+    bool IsMetricLow(string metricName)
+    {
+        if (metricName == "Blood Pressure")
+        {
+            
+            float systolic = GetSystolicBloodPressure();
+            float diastolic = GetDiastolicBloodPressure();
+
+            if (systolic < 0 || diastolic < 0)
+            {
+               
+                return false; 
+            }
+
+            
+            float meanArterialPressure = (systolic + 2 * diastolic) / 3;
+            
+
+            
+            float desiredLowThreshold = 70f; 
+
+            
+            return meanArterialPressure < desiredLowThreshold;
+        }
+
+        
+        var metric = FindMatchingMetric(metricName);
+        if (metric == null)
+        {
+            
+            return false;
+        }
+
+        float value = metric.GetValue();
+       
+        return value < metric.minLimit;
+    }
+
+    float GetSystolicBloodPressure()
+    {
+        var bloodPressureMetric = multiMetricProgressBar.bloodPressureMetrics.Find(m => m.name == "Blood Pressure");
+        if (bloodPressureMetric != null && bloodPressureMetric.systolicBP != null)
+        {
+            string systolicValue = MultiMetricProgressBar.ExtractNumeric(bloodPressureMetric.systolicBP.text);
+            if (float.TryParse(systolicValue, out float systolic))
+                return systolic;
+        }
+
+       
+        return -1; 
+    }
+
+    float GetDiastolicBloodPressure()
+    {
+        var bloodPressureMetric = multiMetricProgressBar.bloodPressureMetrics.Find(m => m.name == "Blood Pressure");
+        if (bloodPressureMetric != null && bloodPressureMetric.diastolicBP != null)
+        {
+            string diastolicValue = MultiMetricProgressBar.ExtractNumeric(bloodPressureMetric.diastolicBP.text);
+            if (float.TryParse(diastolicValue, out float diastolic))
+                return diastolic;
+        }
+
+        
+        return -1; 
+    }
+
+
+}
