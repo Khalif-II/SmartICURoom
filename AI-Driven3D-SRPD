@@ -1,0 +1,145 @@
+using TMPro; 
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+[System.Serializable]
+public struct VitalFocalPoint
+{
+    public Transform modelTransform; 
+    public Vector3 positionOffset; 
+    public Vector3 rotationEuler; 
+    public float zoomDistance; 
+    public string parameterName; 
+}
+
+public class VitalSignFocusController : MonoBehaviour
+{
+    public Transform cameraTransform; 
+    public List<VitalFocalPoint> focalPoints; 
+    public TMP_Text aiResponseText; 
+    public float transitionSpeed = 2.0f;
+    public float focusDuration = 3f;
+    public VoiceAssistant voiceAssistant;
+
+    private Vector3 originalPosition;
+    private Quaternion originalRotation;
+    private string lastParsedResponse = ""; 
+
+    private void Start()
+    {
+        originalPosition = cameraTransform.position;
+        originalRotation = cameraTransform.rotation;
+
+        if (voiceAssistant != null)
+        {
+            
+        }
+        
+    }
+
+    private void Update()
+    {
+        
+        if (aiResponseText != null && aiResponseText.text != lastParsedResponse)
+        {
+            ParseAIResponse(aiResponseText.text);
+            lastParsedResponse = aiResponseText.text; 
+        }
+    }
+
+    private void ParseAIResponse(string responseText)
+    {
+        string normalizedResponse = responseText.ToLower();
+
+        if (normalizedResponse.Contains("heart rate"))
+        {
+            
+            TriggerFocusForParameter("Heart Rate");
+        }
+        else if (normalizedResponse.Contains("respiration rate"))
+        {
+            
+            TriggerFocusForParameter("Respiration Rate");
+        }
+        
+    }
+
+    private void TriggerFocusForParameter(string parameterName)
+    {
+        foreach (var focalPoint in focalPoints)
+        {
+            if (focalPoint.parameterName.ToLower() == parameterName.ToLower())
+            {
+                StartCoroutine(FocusOnFocalPoint(focalPoint));
+                return;
+            }
+        }
+
+       
+    }
+
+    private IEnumerator FocusOnFocalPoint(VitalFocalPoint focalPoint)
+    {
+        if (focalPoint.modelTransform == null)
+        {
+            
+            yield break;
+        }
+
+        Vector3 targetPosition = focalPoint.modelTransform.position +
+                                 focalPoint.positionOffset -
+                                 focalPoint.modelTransform.forward * focalPoint.zoomDistance;
+        Quaternion targetRotation = Quaternion.Euler(focalPoint.rotationEuler);
+
+        while (Vector3.Distance(cameraTransform.position, targetPosition) > 0.1f ||
+               Quaternion.Angle(cameraTransform.rotation, targetRotation) > 0.1f)
+        {
+            cameraTransform.position = Vector3.Lerp(
+                cameraTransform.position,
+                targetPosition,
+                Time.deltaTime * transitionSpeed
+            );
+
+            cameraTransform.rotation = Quaternion.Slerp(
+                cameraTransform.rotation,
+                targetRotation,
+                Time.deltaTime * transitionSpeed
+            );
+
+            yield return null;
+        }
+
+        cameraTransform.position = targetPosition;
+        cameraTransform.rotation = targetRotation;
+
+        voiceAssistant?.SendMessage("ProcessTextInputCommand", $"Currently focused on {focalPoint.parameterName}");
+        yield return new WaitForSeconds(focusDuration);
+
+        yield return ReturnToOriginalPosition();
+    }
+
+    private IEnumerator ReturnToOriginalPosition()
+    {
+        while (Vector3.Distance(cameraTransform.position, originalPosition) > 0.1f ||
+               Quaternion.Angle(cameraTransform.rotation, originalRotation) > 0.1f)
+        {
+            cameraTransform.position = Vector3.Lerp(
+                cameraTransform.position,
+                originalPosition,
+                Time.deltaTime * transitionSpeed
+            );
+
+            cameraTransform.rotation = Quaternion.Slerp(
+                cameraTransform.rotation,
+                originalRotation,
+                Time.deltaTime * transitionSpeed
+            );
+
+            yield return null;
+        }
+
+        cameraTransform.position = originalPosition;
+        cameraTransform.rotation = originalRotation;
+    }
+}
