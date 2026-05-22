@@ -1,0 +1,288 @@
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+
+public class MultiMetricProgressBar : MonoBehaviour
+{
+    [System.Serializable]
+    public class Metric
+    {
+        public string name;                
+        public float baseline;             
+        public float minLimit;             
+        public float maxLimit;             
+        public Image negativeBar;          
+        public Image positiveBar;          
+        public TMP_Text valueText;         
+        public TMP_Text notificationText;  
+
+        public virtual float GetValue()
+        {
+            if (valueText != null)
+            {
+                string numericValue = MultiMetricProgressBar.ExtractNumeric(valueText.text);
+                if (!string.IsNullOrEmpty(numericValue) && float.TryParse(numericValue, out float parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+            return baseline;
+        }
+    }
+
+    [System.Serializable]
+    public class BloodPressureMetric : Metric
+    {
+        [Header("Systolic BP Thresholds")]
+        public float baselineSystolic = 110f;
+        public float minLimitSystolic = 90f;
+        public float maxLimitSystolic = 120f;
+
+        [Header("Diastolic BP Thresholds")]
+        public float baselineDiastolic = 70f;
+        public float minLimitDiastolic = 60f;
+        public float maxLimitDiastolic = 80f;
+
+        public TMP_Text systolicBP;
+        public TMP_Text diastolicBP;
+
+        public override float GetValue()
+        {
+            if (systolicBP != null && diastolicBP != null)
+            {
+                string systolicValue = MultiMetricProgressBar.ExtractNumeric(systolicBP.text);
+                string diastolicValue = MultiMetricProgressBar.ExtractNumeric(diastolicBP.text);
+
+                if (!string.IsNullOrEmpty(systolicValue) && !string.IsNullOrEmpty(diastolicValue) &&
+                    float.TryParse(systolicValue, out float systolic) &&
+                    float.TryParse(diastolicValue, out float diastolic))
+                {
+                    
+                    return (systolic + 2 * diastolic) / 3f;
+                }
+            }
+            
+            return baseline;
+        }
+
+        public void UpdateBPBars(float barMaxWidth, float minVisibleWidth, float animationSpeed, MultiMetricProgressBar progressBarInstance)
+        {
+            if (systolicBP != null && diastolicBP != null)
+            {
+                string systolicValue = MultiMetricProgressBar.ExtractNumeric(systolicBP.text);
+                string diastolicValue = MultiMetricProgressBar.ExtractNumeric(diastolicBP.text);
+
+                if (!string.IsNullOrEmpty(systolicValue) && !string.IsNullOrEmpty(diastolicValue) &&
+                    float.TryParse(systolicValue, out float systolic) &&
+                    float.TryParse(diastolicValue, out float diastolic))
+                {
+                    
+                    float systolicNegativeScale = 0f;
+                    float systolicPositiveScale = 0f;
+
+                    if (systolic < minLimitSystolic)
+                    {
+                        systolicNegativeScale = Mathf.Clamp01((minLimitSystolic - systolic) / (minLimitSystolic - baselineSystolic));
+                    }
+                    else if (systolic > maxLimitSystolic)
+                    {
+                        systolicPositiveScale = Mathf.Clamp01((systolic - maxLimitSystolic) / (maxLimitSystolic - baselineSystolic));
+                    }
+
+                    
+                    float diastolicNegativeScale = 0f;
+                    float diastolicPositiveScale = 0f;
+
+                    if (diastolic < minLimitDiastolic)
+                    {
+                        diastolicNegativeScale = Mathf.Clamp01((minLimitDiastolic - diastolic) / (minLimitDiastolic - baselineDiastolic));
+                    }
+                    else if (diastolic > maxLimitDiastolic)
+                    {
+                        diastolicPositiveScale = Mathf.Clamp01((diastolic - maxLimitDiastolic) / (maxLimitDiastolic - baselineDiastolic));
+                    }
+
+                    
+                    float systolicNegativeBarWidth = Mathf.Max(systolicNegativeScale * barMaxWidth, minVisibleWidth);
+                    float systolicPositiveBarWidth = Mathf.Max(systolicPositiveScale * barMaxWidth, minVisibleWidth);
+                    progressBarInstance.StartCoroutine(progressBarInstance.AnimateBarWidth(negativeBar, systolicNegativeBarWidth, true));
+                    progressBarInstance.StartCoroutine(progressBarInstance.AnimateBarWidth(positiveBar, systolicPositiveBarWidth, false));
+
+                    
+                    float diastolicNegativeBarWidth = Mathf.Max(diastolicNegativeScale * barMaxWidth, minVisibleWidth);
+                    float diastolicPositiveBarWidth = Mathf.Max(diastolicPositiveScale * barMaxWidth, minVisibleWidth);
+                    progressBarInstance.StartCoroutine(progressBarInstance.AnimateBarWidth(negativeBar, diastolicNegativeBarWidth, true));
+                    progressBarInstance.StartCoroutine(progressBarInstance.AnimateBarWidth(positiveBar, diastolicPositiveBarWidth, false));
+                }
+            }
+        }
+
+    }
+
+
+
+    [Header("Metrics")]
+    public List<Metric> metrics = new List<Metric>();
+    public List<BloodPressureMetric> bloodPressureMetrics = new List<BloodPressureMetric>();
+
+    [Header("Bar Settings")]
+    public float barMaxWidth = 200f;
+    public float animationSpeed = 2f;
+    public float minVisibleWidth = 5f; 
+
+    [Header("Notification Settings")]
+    public Color normalTextColor = Color.white; 
+    public Color alertTextColor = Color.red;
+
+    void Start()
+    {
+        foreach (var metric in metrics)
+        {
+            UpdateProgressBar(metric, instant: true);
+        }
+        foreach (var bpMetric in bloodPressureMetrics)
+        {
+            bpMetric.UpdateBPBars(barMaxWidth, minVisibleWidth, animationSpeed, this);
+        }
+    }
+
+
+    void Update()
+    {
+        foreach (var metric in metrics)
+        {
+            UpdateProgressBar(metric);
+        }
+        foreach (var bpMetric in bloodPressureMetrics)
+        {
+            bpMetric.UpdateBPBars(barMaxWidth, minVisibleWidth, animationSpeed, this);
+        }
+    }
+
+
+
+
+    void UpdateProgressBar(Metric metric, bool instant = false)
+    {
+        float currentValue = metric.GetValue();
+
+        
+        bool isWithinNormalRange = currentValue >= metric.minLimit && currentValue <= metric.maxLimit;
+
+        
+        float negativeScale = 0f;
+        float positiveScale = 0f;
+
+        if (!isWithinNormalRange)
+        {
+            if (currentValue < metric.minLimit)
+            {
+                negativeScale = Mathf.Clamp01((metric.minLimit - currentValue) / (metric.minLimit - metric.baseline));
+            }
+            else if (currentValue > metric.maxLimit)
+            {
+                positiveScale = Mathf.Clamp01((currentValue - metric.maxLimit) / (metric.maxLimit - metric.baseline));
+            }
+        }
+
+        
+        float negativeBarTargetWidth = Mathf.Max(negativeScale * barMaxWidth, minVisibleWidth);
+        float positiveBarTargetWidth = Mathf.Max(positiveScale * barMaxWidth, minVisibleWidth);
+
+        
+        StartCoroutine(AnimateBarWidth(metric.negativeBar, negativeBarTargetWidth, isNegative: true));
+        StartCoroutine(AnimateBarWidth(metric.positiveBar, positiveBarTargetWidth, isNegative: false));
+
+        
+        if (metric.notificationText != null)
+        {
+            if (!isWithinNormalRange)
+            {
+                metric.notificationText.text = $"{metric.name}: Threshold Breached!";
+                metric.notificationText.color = alertTextColor;
+            }
+            else
+            {
+                metric.notificationText.text = "";
+                metric.notificationText.color = normalTextColor;
+            }
+        }
+    }
+
+    void HandleTemperatureNotifications(Metric metric, float currentValue)
+    {
+        
+        const float mildFeverStart = 38.0f;
+        const float moderateFeverStart = 39.1f;
+        const float severeFeverStart = 40.0f;
+
+        if (currentValue >= severeFeverStart)
+        {
+            metric.notificationText.text = "Severe Fever! Seek medical attention!";
+            metric.notificationText.color = Color.red;
+        }
+        else if (currentValue >= moderateFeverStart)
+        {
+            metric.notificationText.text = "Moderate Fever. Monitor closely.";
+            metric.notificationText.color = new Color(1f, 0.65f, 0f); 
+        }
+        else if (currentValue >= mildFeverStart)
+        {
+            metric.notificationText.text = "Mild Fever. Take precautions.";
+            metric.notificationText.color = Color.yellow;
+        }
+        else
+        {
+            metric.notificationText.text = "";
+            metric.notificationText.color = normalTextColor;
+        }
+    }
+
+
+
+
+
+    IEnumerator AnimateBarWidth(Image bar, float targetWidth, bool isNegative)
+    {
+        if (bar == null) yield break;
+
+        RectTransform barRect = bar.rectTransform;
+        float initialWidth = barRect.sizeDelta.x;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < 1f)
+        {
+            elapsedTime += Time.deltaTime * animationSpeed;
+            float newWidth = Mathf.Lerp(initialWidth, Mathf.Max(targetWidth, 0), elapsedTime);
+            SetBarWidth(bar, newWidth, isNegative);
+            yield return null;
+        }
+
+        SetBarWidth(bar, Mathf.Max(targetWidth, 0), isNegative);
+    }
+
+    void SetBarWidth(Image bar, float width, bool isNegative)
+    {
+        if (bar == null) return;
+
+        var rectTransform = bar.rectTransform;
+        var sizeDelta = rectTransform.sizeDelta;
+
+        sizeDelta.x = Mathf.Max(width, 0);
+
+        rectTransform.pivot = isNegative ? new Vector2(1f, 0.5f) : new Vector2(0f, 0.5f);
+        rectTransform.sizeDelta = sizeDelta;
+    }
+
+    public static string ExtractNumeric(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return "";
+
+        Match match = Regex.Match(input, @"-?\d+(\.\d+)?");
+        return match.Success ? match.Value : "";
+    }
+}
