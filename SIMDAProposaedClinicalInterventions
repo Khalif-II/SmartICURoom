@@ -1,0 +1,254 @@
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+using System.Threading.Tasks;
+using System.Text.RegularExpressions;
+
+public class AbnormalityChecker : MonoBehaviour
+{
+    public ICUKnowledgeBank icuKnowledgeBank;
+    public PatientDataManager patientDataManager;
+    public NotificationIndicator notificationIndicator;
+    public VoiceAssistant voiceAssistant;
+    public TMP_Text recommendationDisplayText;
+    
+
+    private List<string> recommendations = new List<string>();
+    private List<string> abnormalitySummaries = new List<string>();  
+
+    public TMP_Text heartRateText;
+    public TMP_Text bloodPressureSystolicText;
+    public TMP_Text bloodPressureDiastolicText;
+    public TMP_Text temperatureText;
+    public TMP_Text oxygenSaturationText;
+    public TMP_Text wbcCountText;
+    public TMP_Text crpText;
+    public TMP_Text dDimerText;
+    public TMP_Text altText;
+    public TMP_Text astText;
+    public TMP_Text paO2Text;
+    public TMP_Text creatinineText;
+    public TMP_Text paCO2Text;
+    public TMP_Text phText;
+    public TMP_Text viralLoadText;
+    public TMP_Text respirationRateText;
+    public TMP_Text meanArterialPressureText;
+    public TMP_Text endTidalCO2Text;
+    public TMP_Text capnogramText;
+    public TMP_Text bloodVolumeText;
+
+    public TextAsset pastTrendCSV;
+    private List<PatientTrendData> pastTrendData = new List<PatientTrendData>();
+
+    void Start()
+    {
+        ParsePastTrendCSV();
+        InvokeRepeating("CheckPatientData", 0, 20f);
+    }
+
+    private void ParsePastTrendCSV()
+    {
+        if (pastTrendCSV != null)
+        {
+            var csvLines = pastTrendCSV.text.Split('\n');
+            for (int i = 1; i < csvLines.Length; i++)
+            {
+                var data = csvLines[i].Split(',');
+                if (data.Length >= 5)
+                {
+                    float.TryParse(data[1], out float heartRate);
+                    float.TryParse(data[2], out float systolicBP);
+                    float.TryParse(data[3], out float diastolicBP);
+                    float.TryParse(data[4], out float temperature);
+                    float.TryParse(data[5], out float oxygenSaturation);
+
+                    pastTrendData.Add(new PatientTrendData(heartRate, systolicBP, diastolicBP, temperature, oxygenSaturation));
+                }
+            }
+        }
+    }
+
+    public async void CheckPatientData()
+    {
+        recommendations.Clear();
+        abnormalitySummaries.Clear(); 
+
+        List<string> icuRecommendations = CheckForAbnormalitiesUsingICUKnowledge();
+        recommendations.AddRange(icuRecommendations);
+        abnormalitySummaries.AddRange(icuRecommendations); 
+
+        List<string> trendRecommendations = CheckTrendsForAbnormalities();
+        recommendations.AddRange(trendRecommendations);
+        abnormalitySummaries.AddRange(trendRecommendations); 
+
+        if (recommendations.Count > 0)
+        {
+            List<string> gpt4Recommendations = new List<string>();
+
+            foreach (string recommendation in recommendations)
+            {
+                string gpt4Recommendation = await GetRecommendationFromGPT4(recommendation);
+                gpt4Recommendations.Add(gpt4Recommendation);
+            }
+
+            recommendations.AddRange(gpt4Recommendations);
+
+            await ProvidePatientUpdate();
+        }
+        else
+        {
+            notificationIndicator.StopFlashing();
+        }
+    }
+
+    public List<string> CheckForAbnormalitiesUsingICUKnowledge()
+    {
+        List<string> icuRecommendations = new List<string>();
+
+        Dictionary<string, (TMP_Text textField, string recommendation)> patientDataFields = new Dictionary<string, (TMP_Text, string)>
+        {
+            { "heart rate", (heartRateText, icuKnowledgeBank.abnormalHeartRateRecommendation) },
+            { "blood pressure systolic", (bloodPressureSystolicText, icuKnowledgeBank.abnormalSystolicBPRecommendation) },
+            { "blood pressure diastolic", (bloodPressureDiastolicText, icuKnowledgeBank.abnormalDiastolicBPRecommendation) },
+            { "temperature", (temperatureText, icuKnowledgeBank.abnormalTemperatureRecommendation) },
+            { "oxygen saturation", (oxygenSaturationText, icuKnowledgeBank.abnormalOxygenSaturationRecommendation) },
+            { "wbc count", (wbcCountText, "Consider further evaluation for elevated WBC.") },
+            { "crp", (crpText, "Elevated CRP level; consider further investigation.") },
+            { "d-dimer", (dDimerText, "Elevated D-Dimer; consider testing for thrombotic events.") },
+            { "alt", (altText, "Abnormal ALT level detected; consider liver function assessment.") },
+            { "ast", (astText, "Abnormal AST level detected; consider liver function assessment.") },
+            { "pao2", (paO2Text, "Abnormal PaO2 level detected.") },
+            { "creatinine", (creatinineText, "Abnormal creatinine level; consider renal function assessment.") },
+            { "paco2", (paCO2Text, "Abnormal PaCO2 level; consider respiratory evaluation.") },
+            { "ph", (phText, "Abnormal pH level; consider metabolic or respiratory assessment.") },
+            { "viral load", (viralLoadText, "High viral load; consider isolation and monitoring.") },
+            { "respiration rate", (respirationRateText, "Abnormal respiration rate; consider further evaluation.") },
+            { "mean arterial pressure", (meanArterialPressureText, "Abnormal mean arterial pressure; consider monitoring.") },
+            { "end-tidal co2", (endTidalCO2Text, "Abnormal End-Tidal CO2; consider ventilatory assessment.") },
+            { "capnogram", (capnogramText, "Irregular capnogram waveform detected.") },
+            { "blood volume", (bloodVolumeText, "Abnormal blood volume level; consider fluid management.") }
+        };
+
+        foreach (var field in patientDataFields)
+        {
+            string parameter = field.Key;
+            TMP_Text textField = field.Value.textField;
+            string recommendation = field.Value.recommendation;
+
+            if (textField == null)
+                continue;
+
+            if (!float.TryParse(ExtractNumericValue(textField.text), out float value))
+                continue;
+
+            if (icuKnowledgeBank.thresholds.ContainsKey(parameter) && icuKnowledgeBank.thresholds[parameter].IsAbnormal(value))
+            {
+                icuRecommendations.Add($"{parameter} is abnormal. {recommendation}");
+            }
+        }
+
+        return icuRecommendations;
+    }
+
+    private string ExtractNumericValue(string text)
+    {
+        Match match = Regex.Match(text, @"[-+]?[0-9]*\.?[0-9]+");
+        return match.Success ? match.Value : "";
+    }
+
+    private List<string> CheckTrendsForAbnormalities()
+    {
+        List<string> trendRecommendations = new List<string>();
+
+        if (pastTrendData.Count > 0)
+        {
+            var recentData = pastTrendData[pastTrendData.Count - 1];
+
+            if (float.TryParse(ExtractNumericValue(heartRateText.text), out float currentHeartRate) &&
+                Mathf.Abs(currentHeartRate - recentData.HeartRate) > 10)
+            {
+                trendRecommendations.Add("Heart rate trend indicates worsening condition.");
+            }
+
+            if (float.TryParse(ExtractNumericValue(bloodPressureSystolicText.text), out float currentSystolicBP) &&
+                Mathf.Abs(currentSystolicBP - recentData.BloodPressureSystolic) > 10)
+            {
+                trendRecommendations.Add("Systolic blood pressure trend indicates worsening condition.");
+            }
+
+            if (float.TryParse(ExtractNumericValue(temperatureText.text), out float currentTemperature) &&
+                Mathf.Abs(currentTemperature - recentData.Temperature) > 0.5f)
+            {
+                trendRecommendations.Add("Temperature trend indicates a potential issue.");
+            }
+
+            if (float.TryParse(ExtractNumericValue(oxygenSaturationText.text), out float currentOxygenSaturation) &&
+                Mathf.Abs(currentOxygenSaturation - recentData.OxygenSaturation) > 3)
+            {
+                trendRecommendations.Add("Oxygen saturation trend indicates worsening condition.");
+            }
+        }
+
+        return trendRecommendations;
+    }
+
+    private async Task<string> GetRecommendationFromGPT4(string abnormality)
+    {
+        string gpt4Prompt = $"A patient's data shows the following abnormality: {abnormality}. " +
+                            "Please provide a detailed clinical recommendation based on ICU critical care guidelines. " +
+                            "Avoid commands related to interactive actions or scene manipulation.";
+
+        string response = await voiceAssistant.SendToOpenAI(gpt4Prompt);
+        return $"GPT-4 Clinical Recommendation: {response}";
+    }
+
+    public async Task ProvidePatientUpdate()
+    {
+        if (recommendations.Count > 0)
+        {
+            string response = "Here are the current recommendations:\n";
+
+            foreach (string recommendation in recommendations)
+            {
+                string modifiedRecommendation = recommendation.Replace("GPT-4", "My");
+                response += "- " + modifiedRecommendation + "\n";
+            }
+
+            recommendationDisplayText.text = response;
+            
+            await voiceAssistant.RespondWithText(response);
+        }
+        else
+        {
+            string noAbnormalitiesMessage = "All patient data is within normal ranges.";
+            recommendationDisplayText.text = noAbnormalitiesMessage;
+           
+            await voiceAssistant.RespondWithText(noAbnormalitiesMessage);
+        }
+    }
+
+    
+    public List<string> GetSummaries()
+    {
+        return new List<string>(abnormalitySummaries);
+    }
+}
+
+
+public class PatientTrendData
+{
+    public float HeartRate;
+    public float BloodPressureSystolic;
+    public float BloodPressureDiastolic;
+    public float Temperature;
+    public float OxygenSaturation;
+
+    public PatientTrendData(float heartRate, float systolicBP, float diastolicBP, float temperature, float oxygenSaturation)
+    {
+        HeartRate = heartRate;
+        BloodPressureSystolic = systolicBP;
+        BloodPressureDiastolic = diastolicBP;
+        Temperature = temperature;
+        OxygenSaturation = oxygenSaturation;
+    }
+}
