@@ -1,0 +1,238 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Nov  8 18:30:00 2024
+
+@author: khali
+"""
+
+import json
+from fastapi import FastAPI, Request
+from sentence_transformers import SentenceTransformer, util
+import numpy as np
+import re
+import openai
+from openai import OpenAIError
+
+app = FastAPI()
+
+def load_json(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    return data
+
+def preprocess_content(text):
+   
+    text = re.sub(r"--- End of Page ---", "", text)
+    text = re.sub(r"(ISBN|DOI|Editor|British Library Cataloguing|Springer|Cambridge|Department|Hospital|Cataloguing|Florian Falter).*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(M\.D\.|FRCA|FFICM|Ph\.D\.|Dr\.).*", "", text, flags=re.IGNORECASE)  
+    text = re.sub(r"(Chapter \d+|Figure \d+\.\d+|Fig\. \d+\.\d+|Chapter|Figure).*", "", text, flags=re.IGNORECASE) 
+    text = re.sub(r"[•]", "", text)  
+    
+    paragraphs = text.split('\n\n')
+    
+   
+    relevant_keywords = [
+        
+        "procedure", "management", "guidelines", "treatment", "ICU", "ventilation", "sedation", "cardiac", 
+        "respiratory", "renal", "infection", "monitoring", "stabilization", "support", "assessment",
+        
+       
+        "hemodynamic monitoring", "cardiac output monitoring", "ECMO", "VAD", "ventricular assist device",
+        "IABP", "intra-aortic balloon pump", "dobutamine", "milrinone", "LVAD", "left ventricular assist device",
+        "pulmonary artery catheter", "shock index", "cardiac index", "systemic vascular resistance",
+        "MAP", "mean arterial pressure", "heart rate variability", "stroke volume variation",
+        
+        
+        "antifungals", "voriconazole", "fluconazole", "antiviral therapy", "acyclovir", "ganciclovir",
+        "broad-spectrum antibiotics", "antimicrobial stewardship", "line sepsis", "infectious disease protocol",
+        "biofilm infection", "resistant infections", "carbapenem-resistant Enterobacteriaceae", "CRE",
+        "multidrug-resistant organisms", "MDRO", "nosocomial infections", "ICU infection control",
+        
+        
+        "tumor lysis syndrome", "acute porphyria", "malignant hyperthermia", "severe anaphylaxis",
+        "fat embolism syndrome", "hepatorenal syndrome", "neuroleptic malignant syndrome", 
+        "rhabdomyolysis", "thrombotic thrombocytopenic purpura", "TTP", "posterior reversible encephalopathy syndrome",
+        "PRES", "crush syndrome", "catastrophic antiphospholipid syndrome", "autoimmune encephalitis",
+        
+        
+        "high-frequency ventilation", "APRV", "airway pressure release ventilation", "PEEP", 
+        "positive end-expiratory pressure", "FiO2", "fraction of inspired oxygen", "pulmonary compliance",
+        "bronchodilator therapy", "permissive hypercapnia", "prone positioning", "bronchospasm",
+        "pulmonary artery catheter", "hypoxic drive", "ventilator-associated lung injury", "VILI",
+        
+       
+        "coagulation", "thrombocytopenia", "disseminated intravascular coagulation", "DIC", 
+        "antiplatelet therapy", "hemostasis", "platelet transfusion", "clotting factors", "hemoglobin",
+        "hematocrit", "blood transfusion protocol", "fresh frozen plasma", "cryoprecipitate", "plasma exchange",
+        
+        
+        "end-tidal carbon dioxide", "NIRS", "near-infrared spectroscopy", "noninvasive cardiac output",
+        "pulse oximetry", "ETCO2", "bispectral index monitoring", "regional oxygen saturation",
+        "SvO2", "central venous oxygen saturation", "thermodilution", "PiCCO", "pulse index contour cardiac output",
+        "vigileo monitoring", "ScvO2", "microcirculatory monitoring", "dynamic compliance",
+        "SOFA score", "sequential organ failure assessment", "APACHE score", "Glasgow Coma Scale",
+        
+        
+        "neuromuscular blockade", "train-of-four", "TOF monitoring", "NMBAs", "neuromuscular blocking agents",
+        "pain assessment", "numeric rating scale", "NRS", "behavioral pain scale", "BPS", 
+        "critical care pain observation tool", "CPOT", "sedation interruption", "targeted sedation",
+        "encephalopathy", "delirium", "hypoxic ischemic encephalopathy", "HIE", "post-ICU syndrome", 
+        "memory impairment", "depression", "sleep disturbance", "cognitive dysfunction",
+        
+       
+        "enteral feeding", "parenteral feeding", "tube feeding", "caloric requirements", "protein intake",
+        "nutrition assessment", "hypoalbuminemia", "hyperglycemia management", "caloric deficit",
+        "re-feeding syndrome", "anorexia in critical care", "metabolic derangements", "resting energy expenditure",
+        "total energy expenditure", "parenteral nutrition", "hypernatremia", "hyponatremia", "hypocalcemia",
+        
+        
+        "rehabilitation", "physical therapy", "occupational therapy", "psychological support",
+        "post-intensive care syndrome", "muscle weakness", "ICU-acquired weakness", "ICU psychosis",
+        "long-term recovery", "functional impairment", "quality of life", "deconditioning",
+        
+        
+        "midodrine", "vasopressin", "phenylephrine", "methylnaltrexone", "pancuronium", "sufentanil",
+        "remifentanil", "py", "antiviral therapy", "azithromycin", "piperacillin-tazobactam",
+        "immunosuppressants", "mycophenolate", "cyclosporine", "tacrolimus", "IVIG", "intravenous immunoglobulin",
+        
+       
+        "ACLS", "advanced cardiac life support", "BLS", "basic life support", "CPR", "code blue",
+        "rapid sequence intubation", "RSI", "ALS", "advanced life support", "MEWS", "modified early warning score",
+        "sepsis protocol", "ARDS protocol", "ventilator weaning protocol", "sedation vacation",
+        
+       
+        "infection control", "isolation protocol", "aseptic technique", "antibiotic stewardship",
+        "wound care", "line sepsis", "central line idexmedetomidine", "zolpidem", "zofran", "ondansetron", "esmolol", "labetalol",
+        "antifungal theranfection", "catheter care", "hand hygiene", "PPE",
+        
+        
+        "DNR", "do not resuscitate", "end-of-life care", "palliative care", "family support",
+        "ethics", "patient consent", "advance directive", "comfort care", "withdrawal of care"
+    ]
+    
+    
+    clinical_paragraphs = [p.strip() for p in paragraphs if any(k.lower() in p.lower() for k in relevant_keywords) or len(p) > 100]
+    
+    
+    cleaned_text = " ".join(clinical_paragraphs)
+    return cleaned_text if len(cleaned_text) > 50 else None
+
+def generate_embeddings(knowledge_bank, embedding_model):
+    texts = []
+    try:
+        if isinstance(knowledge_bank, list):
+            for entry in knowledge_bank:
+                if isinstance(entry, dict) and 'content' in entry:
+                    processed_text = preprocess_content(entry['content'])
+                    if processed_text:
+                        texts.append(processed_text)
+                
+                    
+            if not texts:
+                raise ValueError("No relevant 'content' fields found in list entries.")
+        
+        elif isinstance(knowledge_bank, dict):
+            for key, section in knowledge_bank.items():
+                if isinstance(section, list):
+                    for entry in section:
+                        if isinstance(entry, dict) and 'content' in entry:
+                            processed_text = preprocess_content(entry['content'])
+                            if processed_text:
+                                texts.append(processed_text)
+            if not texts:
+                raise ValueError("No relevant 'content' fields found in dictionary entries.")
+        
+        else:
+            raise ValueError("Unexpected structure for knowledge_bank. It should be a list of dictionaries or a dictionary with nested lists.")
+        
+    except Exception as e:
+        raise ValueError("Invalid JSON structure. Could not extract text content for embedding.")
+
+   
+    embeddings = embedding_model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
+    return embeddings
+
+def search_knowledge_bank(query_embedding, knowledge_embeddings, knowledge_bank, top_k=7):  
+    cos_similarities = util.cos_sim(query_embedding, knowledge_embeddings)[0]
+    top_results = np.argsort(-cos_similarities)[:top_k]
+    closest_matches = [knowledge_bank[i] for i in top_results]
+    return closest_matches
+
+def is_simple_query(closest_matches):
+    return len(closest_matches) > 0 and closest_matches[0].get('relevance', 0) > 0.8
+
+def create_context_from_matches(closest_matches):
+    context = "\n".join([match['content'] for match in closest_matches if 'content' in match])
+    return context
+
+def query_gpt4_with_context(query, context):
+    openai.api_key = 
+   
+    try:
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an ICU assistant providing detailed medical responses."},
+                {"role": "user", "content": f"{context}\n\nQuery: {query}\nAnswer:"}
+            ],
+            max_tokens=150,
+            temperature=0.5
+        )
+        return response['choices'][0]['message']['content'].strip()
+
+    except OpenAIError as e:  
+        return "An error occurred while processing the request with GPT-4."
+
+    except Exception as general_error:  
+        return "An unexpected error occurred."
+
+knowledge_bank = load_json(r"C:\Users\khali\Downloads\structured_icu_knowledge_base.json")
+
+for i, entry in enumerate(knowledge_bank[:5]):  
+    if isinstance(entry, dict) and 'content' in entry:
+        cleaned_text = preprocess_content(entry['content'])
+        
+    
+
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2') 
+
+
+
+knowledge_embeddings = generate_embeddings(knowledge_bank, embedding_model)
+
+@app.post("/query")
+async def handle_query(request: Request):
+    
+    try:
+        data = await request.json()
+          
+
+        
+        query = data.get("query")
+        is_advanced = data.get("advanced", False)  
+
+        
+        if not query:
+            
+            return {"error": "Query field is missing or empty"}
+
+        
+        
+        query_embedding = embedding_model.encode(query)
+        closest_matches = search_knowledge_bank(query_embedding, knowledge_embeddings, knowledge_bank)
+
+        
+        if is_simple_query(closest_matches):
+            
+            return {"response": closest_matches[0]['content']}
+
+       
+        context_for_gpt = create_context_from_matches(closest_matches)
+        gpt_response = query_gpt4_with_context(query, context_for_gpt)
+
+    
+        return {"response": gpt_response}
+
+    except Exception as e:
+        
