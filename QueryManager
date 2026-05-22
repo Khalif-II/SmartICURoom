@@ -1,0 +1,71 @@
+using UnityEngine;
+using UnityEngine.Networking;
+using System.Collections;
+using System;
+
+public class QueryManager : MonoBehaviour
+{
+    private string apiUrl = "http://127.0.0.1:8000/query";  
+
+    
+    public Action<string> OnResponseReceived;
+
+    
+    public void SendQuery(string query)
+    {
+        StartCoroutine(QueryServer(query, isAdvanced: false));
+    }
+
+    
+    public void SendAdvancedQuery(string query)
+    {
+        StartCoroutine(QueryServer(query, isAdvanced: true));
+    }
+
+    private IEnumerator QueryServer(string query, bool isAdvanced)
+    {
+        
+        var jsonData = new QueryPayload
+        {
+            query = query,
+            advanced = isAdvanced
+        };
+        string jsonString = JsonUtility.ToJson(jsonData);
+
+        using (UnityWebRequest request = new UnityWebRequest(apiUrl, "POST"))
+        {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonString);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                var response = JsonUtility.FromJson<ResponseFormat>(request.downloadHandler.text)
+                OnResponseReceived?.Invoke(response.response);
+            }
+            else
+            {
+                OnResponseReceived?.Invoke("Error retrieving data.");
+                
+            }
+        }
+    }
+}
+
+
+[Serializable]
+public class QueryPayload
+{
+    public string query;
+    public bool advanced;
+}
+
+
+[Serializable]
+public class ResponseFormat
+{
+    public string response;
+}
